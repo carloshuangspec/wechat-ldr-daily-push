@@ -1,50 +1,138 @@
-# 双时区早安推送
-# - 中国 08:00 Asia/Shanghai = UTC 00:00
-# - 美国东部约 08:00 America/New_York：
-#     冬令时 EST (UTC-5) → UTC 13:00
-#     夏令时 EDT (UTC-4) → UTC 12:00
-#   GitHub cron 固定 UTC，无法自动跟 DST；默认按冬令时 13:00 UTC，
-#   夏令时期间会变成当地 09:00，可按需改 cron。
-
+# 阶段 C：所有定时任务只预览；仅受控 workflow_dispatch 可真发一次 CN。
 name: daily-push
 
-on:
+"on":
   schedule:
-    # 中国 08:00（全年 UTC 00:00）
-    - cron: "0 0 * * *"
-    # 美国东部约 08:00（冬令时 UTC 13:00）
-    - cron: "0 13 * * *"
+    - cron: "7 8 * * *"
+      timezone: "Asia/Shanghai"
+    - cron: "13 8 * * *"
+      timezone: "America/Detroit"
   workflow_dispatch:
     inputs:
-      slot:
-        description: "推送槽位 cn / us / both"
+      mode:
+        description: "preview（仅预览）/ live-cn（受控 CN 真发）"
         required: true
-        default: "both"
+        default: preview
         type: choice
         options:
-          - both
+          - preview
+          - live-cn
+      slot:
+        description: "预览槽位；live-cn 只允许 cn"
+        required: true
+        default: cn
+        type: choice
+        options:
           - cn
           - us
+          - both
+      confirmation:
+        description: "live-cn 时必须精确输入 SEND_CN_ONCE"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wechat-ldr-daily-push-stage-c
+  cancel-in-progress: false
 
 jobs:
-  push-cn:
-    name: push-cn (Asia/Shanghai ~08:00)
+  validate-dispatch:
+    name: Validate stage-C gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Fail-closed validation
+        shell: bash
+        env:
+          REQUEST_EVENT: ${{ github.event_name }}
+          REQUEST_MODE: ${{ inputs.mode }}
+          REQUEST_SLOT: ${{ inputs.slot }}
+          REQUEST_CONFIRMATION: ${{ inputs.confirmation }}
+          REQUEST_REPOSITORY: ${{ github.repository }}
+          REQUEST_REF: ${{ github.ref }}
+          REQUEST_ACTOR: ${{ github.actor }}
+          REQUEST_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUEST_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          case "$REQUEST_EVENT" in
+            schedule)
+              exit 0
+              ;;
+            workflow_dispatch)
+              ;;
+            *)
+              echo "::error::Unsupported workflow event."
+              exit 1
+              ;;
+          esac
+
+          case "$REQUEST_SLOT" in
+            cn|us|both)
+              ;;
+            *)
+              echo "::error::Invalid slot."
+              exit 1
+              ;;
+          esac
+
+          case "$REQUEST_MODE" in
+            preview)
+              ;;
+            live-cn)
+              if [ "$REQUEST_SLOT" != "cn" ] || [ "$REQUEST_CONFIRMATION" != "SEND_CN_ONCE" ]; then
+                echo "::error::live-cn requires slot=cn and the exact confirmation."
+                exit 1
+              fi
+              if [ "$REQUEST_REPOSITORY" != "carloshuangspec/wechat-ldr-daily-push" ] || [ "$REQUEST_REF" != "refs/heads/main" ]; then
+                echo "::error::live-cn is restricted to the canonical repository main branch."
+                exit 1
+              fi
+              if [ "$REQUEST_ACTOR" != "carloshuangspec" ] || [ "$REQUEST_TRIGGERING_ACTOR" != "carloshuangspec" ]; then
+                echo "::error::live-cn is restricted to the repository owner."
+                exit 1
+              fi
+              if [ "$REQUEST_ATTEMPT" != "1" ]; then
+                echo "::error::Re-running a live-cn workflow is not allowed."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Invalid mode."
+              exit 1
+              ;;
+          esac
+
+  preview-cn:
+    name: Preview CN (Asia/Shanghai ~08:07)
+    needs: validate-dispatch
     if: >
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.slot == 'cn' || github.event.inputs.slot == 'both')) ||
-      (github.event_name == 'schedule' && github.event.schedule == '0 0 * * *')
+      needs.validate-dispatch.result == 'success' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '7 8 * * *') ||
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
+        (inputs.slot == 'cn' || inputs.slot == 'both')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - name: Install deps
+      - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Push CN slot
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Preview CN
         env:
           PUSH_SLOT: cn
+          SEND_MODE: dry-run
           CITY_A: ${{ vars.CITY_A }}
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
@@ -55,38 +143,88 @@ jobs:
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
-          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
-          WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
-          WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}
-          WECHAT_OPENID_US: ${{ secrets.WECHAT_OPENID_US }}
-          DRY_RUN: ${{ vars.DRY_RUN }}
+          # 预览 job 故意不加载任何 WECHAT_*。
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
           export CITY_B="${CITY_B:-Shanghai}"
           export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
           export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
-          export DRY_RUN="${DRY_RUN:-0}"
           python src/main.py
 
-  push-us:
-    name: push-us (America/New_York ~08:00)
+  preview-us:
+    name: Preview US (America/Detroit ~08:13)
+    needs: validate-dispatch
     if: >
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.slot == 'us' || github.event.inputs.slot == 'both')) ||
-      (github.event_name == 'schedule' && github.event.schedule == '0 13 * * *')
+      needs.validate-dispatch.result == 'success' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '13 8 * * *') ||
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
+        (inputs.slot == 'us' || inputs.slot == 'both')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - name: Install deps
+      - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Push US slot
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Preview US
         env:
           PUSH_SLOT: us
+          SEND_MODE: dry-run
+          CITY_A: ${{ vars.CITY_A }}
+          CITY_B: ${{ vars.CITY_B }}
+          CITY_A_TZ: ${{ vars.CITY_A_TZ }}
+          CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
+          NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
+          QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
+          QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          # 预览 job 故意不加载任何 WECHAT_*。
+        run: |
+          export CITY_A="${CITY_A:-Ann Arbor}"
+          export CITY_B="${CITY_B:-Shanghai}"
+          export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
+          export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
+          python src/main.py
+
+  live-cn:
+    name: LIVE CN (one controlled attempt)
+    needs: validate-dispatch
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'live-cn' && inputs.slot == 'cn' &&
+      inputs.confirmation == 'SEND_CN_ONCE' &&
+      github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'carloshuangspec' &&
+      github.triggering_actor == 'carloshuangspec' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests without live credentials
+        run: python -m unittest discover -s tests -v
+      - name: Send CN once
+        env:
+          PUSH_SLOT: cn
+          SEND_MODE: live
+          LIVE_CONFIRMATION: ${{ inputs.confirmation }}
           CITY_A: ${{ vars.CITY_A }}
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
@@ -101,12 +239,10 @@ jobs:
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
           WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}
-          WECHAT_OPENID_US: ${{ secrets.WECHAT_OPENID_US }}
-          DRY_RUN: ${{ vars.DRY_RUN }}
+          # 阶段 C 故意不加载 WECHAT_OPENID_US 或旧 DRY_RUN。
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
           export CITY_B="${CITY_B:-Shanghai}"
           export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
           export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
-          export DRY_RUN="${DRY_RUN:-0}"
           python src/main.py

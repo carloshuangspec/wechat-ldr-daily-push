@@ -22,6 +22,18 @@ def meet_days(next_meet: str, today: date | None = None) -> int:
     return max(delta, 0)
 
 
+def meet_status(next_meet: str, today: date | None = None) -> str:
+    """返回见面倒计时的未来、当天、过去三态文案。"""
+    meet_d = date.fromisoformat(next_meet)
+    d = today or date.today()
+    delta = (meet_d - d).days
+    if delta > 0:
+        return f"还有{delta}天"
+    if delta == 0:
+        return "就是今天"
+    return "见面日已过"
+
+
 def local_now_str(tz_name: str, fmt: str = "%H:%M") -> str:
     """指定时区当前本地时间短字符串。"""
     now = datetime.now(ZoneInfo(tz_name))
