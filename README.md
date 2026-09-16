@@ -2,17 +2,18 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：只准备一次受控 CN 真发。所有定时任务、所有 US 任务和默认手动任务都只预览；一次 CN 成功后，再由 Carlos 决定是否配置双端发送。
+当前处于“阶段 C”：准备两次彼此独立的受控手动测试，先发送给 Carlos 本人（US 槽位），再发送给女友（CN 槽位）。默认手动任务和所有定时任务仍只预览；两部手机均确认收到并检查内容后，才另行决定是否开启 CN 每日发送。US 自测不会开启给 Carlos 的每日推送。
 
 ## 安全运行模式
 
 应用层 `SEND_MODE` 只接受两个值：
 
 - `dry-run`：只打印脱敏预览，不发送；缺失时也是此模式。
-- `live`：仅允许 `PUSH_SLOT=cn`，且必须同时设置精确确认短语
-  `LIVE_CONFIRMATION=SEND_CN_ONCE`。阶段 C 还要求受控 GitHub Actions
-  `workflow_dispatch` 上下文；普通本机运行会安全停止。其他槽位、缺确认或
-  未知值都会在任何外部请求前安全停止。
+- `live`：必须精确匹配 `LIVE_RECIPIENT=self`、`PUSH_SLOT=us`、
+  `LIVE_CONFIRMATION=SEND_SELF_ONCE`，或 `LIVE_RECIPIENT=cn`、`PUSH_SLOT=cn`、
+  `LIVE_CONFIRMATION=SEND_CN_ONCE`；还要求受控 GitHub Actions
+  `workflow_dispatch` 上下文。普通本机运行、交叉槽位、缺确认或未知值都会在
+  任何外部请求前安全停止。
 
 这层 `GITHUB_*` 检查用于防误操作，不是不可伪造的远程身份证明；环境变量在
 本机仍可人为伪造。因此真实微信凭据只应保存在 GitHub Secrets，不要写入本机
@@ -25,10 +26,12 @@
 ```bash
 PUSH_SLOT=cn \
 SEND_MODE=dry-run \
-LOVE_START_DATE=2024-01-01 \
-NEXT_MEET_DATE=2026-12-25 \
+LOVE_START_DATE=2026-07-08 \
+NEXT_MEET_DATE=2026-12-20 \
 python src/main.py
 ```
+
+`KNOWN_START_DATE` 是可选的约数起点，未设置时使用 `2019-09-02`。它不表示已核实的相识日；消息中的 `Known: ≈N days` 与确定的在一起天数分开计算。`NEXT_MEET_DATE=2026-12-20` 是 Carlos 本次确认的下次见面日期，仍按收件人当地日期计算倒计时。
 
 ## 阶段 C：GitHub Actions 操作
 
@@ -37,13 +40,13 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 手动运行 `daily-push` 时：
 
 - 安全预览：选择 `mode=preview`；`slot` 可选 `cn`、`us` 或 `both`，无需 confirmation。
-- 唯一真发路径：同时选择 `mode=live-cn`、`slot=cn`，并在 confirmation 精确输入 `SEND_CN_ONCE`。
-- `live-cn` 还被限制在本仓库 `main` 分支、仓库所有者首次执行的 run；对该 run 点 Re-run 会被拒绝。
-- `live-cn` 的槽位、确认短语、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行。
+- 本人测试：选择 `mode=live-self`、`slot=us`，并在 confirmation 精确输入 `SEND_SELF_ONCE`。该 job 只能使用 `WECHAT_OPENID_SELF`，不能读取 CN 收件人的 OpenID。
+- 女友测试：选择 `mode=live-cn`、`slot=cn`，并在 confirmation 精确输入 `SEND_CN_ONCE`。该 job 只能使用 `WECHAT_OPENID_CN`，不能读取本人的 OpenID。
+- 两条真发路径都限制为本仓库 `main` 分支、仓库所有者首次执行的手动 run；对该 run 点 Re-run 会被拒绝。槽位、短语、仓库、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行；定时事件也不能进入它们。
 
-阶段 C 将预览与真发拆成独立 job：两个预览 job 和所有 schedule 永远使用 `SEND_MODE=dry-run`，并且完全不加载任何 `WECHAT_*`；只有唯一的 `live-cn` job 会把已验证的手动选择映射为 `SEND_MODE=live`，其最后一步才可以读取 CN 真发所需的四个微信 Secrets。工作流会在加载这些 Secrets 前先安装依赖并运行单元测试。
+阶段 C 将预览与真发拆成独立 job：两个预览 job 和所有 schedule 仍使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。仅 `live-self` 和 `live-cn` 各自的发送步骤会把已验证的手动选择映射为 `SEND_MODE=live`，分别只加载所需的一个收件人 OpenID 与共用的三个微信 Secrets。工作流会在加载这些 Secrets 前先安装依赖并运行单元测试。
 
-`SEND_CN_ONCE` 是意图确认短语，不是真正的一次性令牌。不要连续创建多个新的 `live-cn` run；第一次手机确认收到后，应先关闭临时真发入口，再决定下一阶段。
+`SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。先看自测的脱敏 API 结果，若成功再做一次 CN 测试；任何一步失败都先排查，不能自动重发。API 接受和绿色 job 均不等于手机收到；请在两部手机核对消息、换行和天气来源，然后才决定下一阶段。
 
 ## 配置：必填与可选
 
@@ -54,14 +57,15 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `LOVE_START_DATE` | Actions Secret | 在一起日，`YYYY-MM-DD` |
 | `NEXT_MEET_DATE` | Actions Secret | 下次见面日，`YYYY-MM-DD` |
 
-仅阶段 C 的 CN 真发必填：
+仅阶段 C 对应收件人的真发必填（每条 job 只加载各自的 OpenID）：
 
 | Name | 类型 | 说明 |
 |------|------|------|
 | `WECHAT_APP_ID` | Actions Secret | 微信测试号 appID |
 | `WECHAT_APP_SECRET` | Actions Secret | 微信测试号 appsecret |
 | `WECHAT_TEMPLATE_ID` | Actions Secret | 模板 ID |
-| `WECHAT_OPENID_CN` | Actions Secret | CN 槽位接收方 openid |
+| `WECHAT_OPENID_SELF` | Actions Secret | Carlos 本人的 US 槽位 openid，仅 `live-self` 读取 |
+| `WECHAT_OPENID_CN` | Actions Secret | 女友的 CN 槽位 openid，仅 `live-cn` 读取 |
 
 可选增强：
 
@@ -71,6 +75,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `QWEATHER_API_HOST` | Actions Secret | 可选的 QWeather 控制台 `*.qweatherapi.com` 账号专属 API Host |
 | `GEMINI_API_KEY` | Actions Secret | 可选，生成英文情话；失败或返回非 ASCII / 超长内容时使用内置英文短句 |
 | `GEMINI_MODEL` | Actions Variable | 可选模型 |
+| `KNOWN_START_DATE` | Actions Variable | 可选约数起点，默认 `2019-09-02`，不是已核实的相识日 |
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
 
@@ -91,7 +96,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。`weather_source` 会标明本次选择的天气服务和官网链接：
+测试号模板字段必须与下面一致，固定标签请用英文。无需为认识天数添加模板字段：现有 `love_line` 会包含两行英文文本，先是 `Known: ≈N days`，再是情话。`weather_source` 会标明本次选择的天气服务和官网链接：
 
 ```text
 {{greeting.DATA}}
@@ -103,14 +108,15 @@ Next meeting: {{meet_days.DATA}}
 Weather: {{weather_source.DATA}}
 ```
 
-示例：
+示例（日期数值以 2026-09-16 为计算日；天气与时间仅为格式示意）：
 
 ```text
 Good morning, love!
 A: Ann Arbor 20:00 Sunny 12°C
 B: Shanghai 08:00 Cloudy 22°C
-Together: 100 days
-Next meeting: in 30 days
+Together: 71 days
+Next meeting: in 95 days
+Known: ≈2572 days
 Thinking of you
 Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted
 ```

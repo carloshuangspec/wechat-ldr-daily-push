@@ -409,6 +409,27 @@ class DateTests(unittest.TestCase):
             )
             self.assert_english_payload(fields)
 
+    def test_missing_known_start_date_uses_approximate_anchor(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "us",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Thinking of you"),
+        ):
+            fields = main.build_payload_fields()
+            self.assertEqual(fields["love_line"], "Known: ≈2572 days\nThinking of you")
+            self.assertEqual(fields["love_days"], "71 days")
+            self.assertEqual(fields["meet_days"], "in 95 days")
+
     def test_invalid_known_start_date_fails_before_weather(self) -> None:
         with (
             patch.dict(
@@ -1132,17 +1153,24 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIn(
             '[ "$REQUEST_CONFIRMATION" != "SEND_CN_ONCE" ]', self.workflow
         )
+        self.assertIn("          - live-self", self.workflow)
+        self.assertIn("            live-self)", self.workflow)
+        self.assertIn('[ "$REQUEST_SLOT" != "us" ]', self.workflow)
+        self.assertIn(
+            '[ "$REQUEST_CONFIRMATION" != "SEND_SELF_ONCE" ]', self.workflow
+        )
         self.assertIn('REQUEST_REF: ${{ github.ref }}', self.workflow)
         self.assertIn('REQUEST_ATTEMPT: ${{ github.run_attempt }}', self.workflow)
-        self.assertIn('github.ref == \'refs/heads/main\'', self.workflow)
-        self.assertIn("github.run_attempt == '1'", self.workflow)
+        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 2)
+        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 2)
 
     def test_preview_jobs_have_no_wechat_credentials(self) -> None:
+        self.assertIn("  live-self:", self.workflow)
         cn_job = self.workflow.split("  preview-cn:", 1)[1].split(
             "  preview-us:", 1
         )[0]
         us_job = self.workflow.split("  preview-us:", 1)[1].split(
-            "  live-cn:", 1
+            "  live-self:", 1
         )[0]
         for job in (cn_job, us_job):
             self.assertIn("SEND_MODE: dry-run", job)
@@ -1150,28 +1178,67 @@ class WorkflowPolicyTests(unittest.TestCase):
             self.assertNotIn("WECHAT_APP_SECRET:", job)
             self.assertNotIn("WECHAT_TEMPLATE_ID:", job)
             self.assertNotIn("WECHAT_OPENID_CN:", job)
+            self.assertNotIn("WECHAT_OPENID_SELF:", job)
             self.assertNotIn("SEND_MODE: ${{", job)
 
     def test_optional_gemini_is_available_in_each_message_job(self) -> None:
-        self.assertEqual(self.workflow.count("GEMINI_API_KEY:"), 3)
-        self.assertEqual(self.workflow.count("GEMINI_MODEL:"), 3)
+        self.assertEqual(self.workflow.count("GEMINI_API_KEY:"), 4)
+        self.assertEqual(self.workflow.count("GEMINI_MODEL:"), 4)
 
-    def test_only_live_cn_job_can_load_wechat_credentials(self) -> None:
-        live_job = self.workflow.split("  live-cn:", 1)[1]
-        self.assertIn("SEND_MODE: live", live_job)
-        self.assertIn("LIVE_CONFIRMATION: ${{ inputs.confirmation }}", live_job)
-        self.assertIn("WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}", live_job)
-        self.assertIn("WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}", live_job)
-        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 1)
+    def test_manual_live_jobs_are_isolated_by_recipient_and_event(self) -> None:
+        self.assertIn("  live-self:", self.workflow)
+        self_job = self.workflow.split("  live-self:", 1)[1].split(
+            "  live-cn:", 1
+        )[0]
+        cn_job = self.workflow.split("  live-cn:", 1)[1]
+        for mode, slot, confirmation, recipient, job in (
+            ("live-self", "us", "SEND_SELF_ONCE", "self", self_job),
+            ("live-cn", "cn", "SEND_CN_ONCE", "cn", cn_job),
+        ):
+            with self.subTest(mode=mode):
+                self.assertIn("needs: validate-dispatch", job)
+                self.assertIn("needs.validate-dispatch.result == 'success'", job)
+                self.assertIn("github.event_name == 'workflow_dispatch'", job)
+                self.assertIn(f"inputs.mode == '{mode}'", job)
+                self.assertIn(f"inputs.slot == '{slot}'", job)
+                self.assertIn(f"inputs.confirmation == '{confirmation}'", job)
+                self.assertIn("github.repository == 'carloshuangspec/wechat-ldr-daily-push'", job)
+                self.assertIn("github.ref == 'refs/heads/main'", job)
+                self.assertIn("github.actor == 'carloshuangspec'", job)
+                self.assertIn("github.triggering_actor == 'carloshuangspec'", job)
+                self.assertIn("github.run_attempt == '1'", job)
+                self.assertIn(f"PUSH_SLOT: {slot}", job)
+                self.assertIn("SEND_MODE: live", job)
+                self.assertIn(f"LIVE_RECIPIENT: {recipient}", job)
+                self.assertIn("LIVE_CONFIRMATION: ${{ inputs.confirmation }}", job)
+                self.assertIn("WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}", job)
+                self.assertIn("WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}", job)
+                self.assertIn("WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}", job)
+                self.assertNotIn("github.event_name == 'schedule'", job)
+                self.assertIn("actions/checkout@v7", job)
+                self.assertIn("actions/setup-python@v7", job)
+                self.assertIn("python -m unittest discover -s tests -v", job)
+
+        self.assertIn("WECHAT_OPENID_SELF: ${{ secrets.WECHAT_OPENID_SELF }}", self_job)
+        self.assertNotIn("WECHAT_OPENID_CN:", self_job)
+        self.assertIn("WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}", cn_job)
+        self.assertNotIn("WECHAT_OPENID_SELF:", cn_job)
+        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 2)
+        self.assertEqual(self.workflow.count("WECHAT_OPENID_SELF:"), 1)
         self.assertEqual(self.workflow.count("WECHAT_OPENID_CN:"), 1)
         self.assertNotIn("WECHAT_OPENID_US:", self.workflow)
-        self.assertEqual(self.workflow.count("SEND_MODE: live"), 1)
+        self.assertEqual(self.workflow.count("SEND_MODE: live"), 2)
         self.assertNotIn("DRY_RUN:", self.workflow)
         self.assertNotIn("vars.DRY_RUN", self.workflow)
 
+    def test_known_start_date_reaches_every_message_job(self) -> None:
+        self.assertEqual(
+            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 4
+        )
+
     def test_workflow_uses_current_node24_actions_and_fixed_concurrency(self) -> None:
-        self.assertEqual(self.workflow.count("actions/checkout@v7"), 3)
-        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 3)
+        self.assertEqual(self.workflow.count("actions/checkout@v7"), 4)
+        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 4)
         self.assertIn("group: wechat-ldr-daily-push-stage-c", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
 

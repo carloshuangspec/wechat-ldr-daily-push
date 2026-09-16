@@ -1,4 +1,4 @@
-# 阶段 C：所有定时任务只预览；仅受控 workflow_dispatch 可真发一次 CN。
+# 阶段 C：定时任务只预览；受控 workflow_dispatch 可分别向自己和 CN 测试。
 name: daily-push
 
 "on":
@@ -10,15 +10,16 @@ name: daily-push
   workflow_dispatch:
     inputs:
       mode:
-        description: "preview（仅预览）/ live-cn（受控 CN 真发）"
+        description: "preview（仅预览）/ live-self（US 自测）/ live-cn（CN 测试）"
         required: true
         default: preview
         type: choice
         options:
           - preview
+          - live-self
           - live-cn
       slot:
-        description: "预览槽位；live-cn 只允许 cn"
+        description: "预览槽位；live-self 只允许 us，live-cn 只允许 cn"
         required: true
         default: cn
         type: choice
@@ -27,7 +28,7 @@ name: daily-push
           - us
           - both
       confirmation:
-        description: "live-cn 时必须精确输入 SEND_CN_ONCE"
+        description: "live-self: SEND_SELF_ONCE；live-cn: SEND_CN_ONCE"
         required: false
         default: ""
         type: string
@@ -84,6 +85,24 @@ jobs:
           case "$REQUEST_MODE" in
             preview)
               ;;
+            live-self)
+              if [ "$REQUEST_SLOT" != "us" ] || [ "$REQUEST_CONFIRMATION" != "SEND_SELF_ONCE" ]; then
+                echo "::error::live-self requires slot=us and the exact confirmation."
+                exit 1
+              fi
+              if [ "$REQUEST_REPOSITORY" != "carloshuangspec/wechat-ldr-daily-push" ] || [ "$REQUEST_REF" != "refs/heads/main" ]; then
+                echo "::error::live-self is restricted to the canonical repository main branch."
+                exit 1
+              fi
+              if [ "$REQUEST_ACTOR" != "carloshuangspec" ] || [ "$REQUEST_TRIGGERING_ACTOR" != "carloshuangspec" ]; then
+                echo "::error::live-self is restricted to the repository owner."
+                exit 1
+              fi
+              if [ "$REQUEST_ATTEMPT" != "1" ]; then
+                echo "::error::Re-running a live-self workflow is not allowed."
+                exit 1
+              fi
+              ;;
             live-cn)
               if [ "$REQUEST_SLOT" != "cn" ] || [ "$REQUEST_CONFIRMATION" != "SEND_CN_ONCE" ]; then
                 echo "::error::live-cn requires slot=cn and the exact confirmation."
@@ -137,6 +156,7 @@ jobs:
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
           CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
           LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
@@ -180,6 +200,7 @@ jobs:
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
           CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
           LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
@@ -187,6 +208,60 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           # 预览 job 故意不加载任何 WECHAT_*。
+        run: |
+          export CITY_A="${CITY_A:-Ann Arbor}"
+          export CITY_B="${CITY_B:-Shanghai}"
+          export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
+          export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
+          python src/main.py
+
+  live-self:
+    name: LIVE SELF (one controlled attempt)
+    needs: validate-dispatch
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'live-self' && inputs.slot == 'us' &&
+      inputs.confirmation == 'SEND_SELF_ONCE' &&
+      github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'carloshuangspec' &&
+      github.triggering_actor == 'carloshuangspec' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests without live credentials
+        run: python -m unittest discover -s tests -v
+      - name: Send SELF once
+        env:
+          PUSH_SLOT: us
+          SEND_MODE: live
+          LIVE_RECIPIENT: self
+          LIVE_CONFIRMATION: ${{ inputs.confirmation }}
+          CITY_A: ${{ vars.CITY_A }}
+          CITY_B: ${{ vars.CITY_B }}
+          CITY_A_TZ: ${{ vars.CITY_A_TZ }}
+          CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
+          LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
+          NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
+          QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
+          QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+          WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
+          WECHAT_OPENID_SELF: ${{ secrets.WECHAT_OPENID_SELF }}
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
           export CITY_B="${CITY_B:-Shanghai}"
@@ -224,11 +299,13 @@ jobs:
         env:
           PUSH_SLOT: cn
           SEND_MODE: live
+          LIVE_RECIPIENT: cn
           LIVE_CONFIRMATION: ${{ inputs.confirmation }}
           CITY_A: ${{ vars.CITY_A }}
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
           CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
           LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
@@ -239,7 +316,6 @@ jobs:
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
           WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}
-          # 阶段 C 故意不加载 WECHAT_OPENID_US 或旧 DRY_RUN。
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
           export CITY_B="${CITY_B:-Shanghai}"
