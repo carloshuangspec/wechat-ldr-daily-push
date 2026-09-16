@@ -87,7 +87,7 @@ QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用�
 
 Gemini 提示词为英文，返回非 ASCII、超长或无效文本时使用内置英文短句；未配置 Key 时不请求 Gemini，直接轮换内置短句。提示词不能百分之百保证语言，例如非英语但仅含 ASCII 字符的短句仍可能通过字符校验。`GEMINI_MODEL` 不必配置；只有需要显式更换模型时才设置覆盖值。真实 Key 只在仓库的 GitHub Actions Secret `GEMINI_API_KEY` 中配置，不要写入本地 `.env`、仓库、聊天或日志。如果某个 Key 已在聊天等不受控位置暴露，应在提供方撤销它，并私下创建替换 Key、更新该 Secret；不要再次分享 Key 值。
 
-先使用 `mode=preview` 检查安全预览日志：`gemini_source=generated` 表示本次生成结果通过校验，`gemini_source=fallback` 表示本次使用内置英文短句。预览中的 `gemini_key_set` 仅表示该环境变量非空，**不证明 Gemini 已成功生成**；应以 `gemini_source` 区分本次结果。预览 job 始终 `SEND_MODE=dry-run`、不加载任何 `WECHAT_*`，不会发送微信消息；测试 Gemini 不需要开启 CN 日推，`ENABLE_CN_DAILY` 应保持未设置或不等于 `1`。
+先使用 `mode=preview`，只检查该 job 的实际 `Preview CN` 或 `Preview US` 步骤日志：其中的 `gemini_source=generated` 表示本次生成结果通过校验，`gemini_source=fallback` 表示本次使用内置英文短句。前面的 `Run tests` 步骤使用模拟响应，也可能打印 `gemini_source=generated`；不要用测试步骤或整条 job 的搜索结果判断真实生成。预览中的 `gemini_key_set` 仅表示该环境变量非空，**不证明 Gemini 已成功生成**；应以实际预览步骤的 `gemini_source` 区分本次结果。预览 job 始终 `SEND_MODE=dry-run`、不加载任何 `WECHAT_*`，不会发送微信消息；测试 Gemini 不需要开启 CN 日推，`ENABLE_CN_DAILY` 应保持未设置或不等于 `1`。
 
 QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 暂不迁移 v1，后续必须在停服前安排迁移。
 
