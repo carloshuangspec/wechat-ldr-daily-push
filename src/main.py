@@ -137,7 +137,7 @@ def build_payload_fields() -> dict[str, str]:
 
     weather_a = brief_weather(city_a)
     weather_b = brief_weather(city_b)
-    known_line = f"Known: ≈{known_days} days\n"
+    known_suffix = f"\nKnown: ≈{known_days} days"
     if exact is not None:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
@@ -150,7 +150,8 @@ def build_payload_fields() -> dict[str, str]:
         or not short_line.isprintable()
     ):
         raise ConfigError("Invalid English love line")
-    love_line = known_line + short_line
+    # Show the emotional line first even in clients that preview only the first line.
+    love_line = short_line + known_suffix
     if len(love_line) > 64:
         raise ConfigError("Love line exceeds template limit")
 
@@ -170,7 +171,7 @@ def build_payload_fields() -> dict[str, str]:
     }
     for key, value in fields.items():
         if key == "love_line":
-            valid = value.startswith(known_line) and value[len(known_line):].isascii()
+            valid = value.endswith(known_suffix) and value[:-len(known_suffix)].isascii()
         elif key in {"weather_a", "weather_b"}:
             valid = value.replace("°", "").isascii()
         else:

@@ -477,10 +477,10 @@ class DateTests(unittest.TestCase):
                 if key in {"weather_a", "weather_b"}:
                     self.assertTrue(value.replace("°", "").isascii())
                 elif key == "love_line":
-                    first_line, separator, generated_line = value.partition("\n")
-                    self.assertRegex(first_line, r"\AKnown: ≈[0-9]+ days\Z")
-                    self.assertEqual(separator, "\n")
+                    generated_line, separator, known_line = value.partition("\n")
                     self.assertTrue(generated_line.isascii())
+                    self.assertRegex(known_line, r"\AKnown: ≈[0-9]+ days\Z")
+                    self.assertEqual(separator, "\n")
                 else:
                     self.assertTrue(value.isascii())
 
@@ -504,10 +504,10 @@ class DateTests(unittest.TestCase):
             fields = main.build_payload_fields()
             self.assertEqual(fields["love_days"], "71 days")
             self.assertEqual(fields["meet_days"], "in 95 days")
-            self.assertEqual(fields["love_line"], "Known: ≈2572 days\nThinking of you")
+            self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
             self.assertEqual(
                 wechat.build_template_data(fields)["love_line"]["value"],
-                "Known: ≈2572 days\nThinking of you",
+                "Thinking of you\nKnown: ≈2572 days",
             )
             self.assert_english_payload(fields)
 
@@ -528,7 +528,7 @@ class DateTests(unittest.TestCase):
             patch.object(main, "generate_love_line", return_value="Thinking of you"),
         ):
             fields = main.build_payload_fields()
-            self.assertEqual(fields["love_line"], "Known: ≈2572 days\nThinking of you")
+            self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
             self.assertEqual(fields["love_days"], "71 days")
             self.assertEqual(fields["meet_days"], "in 95 days")
 

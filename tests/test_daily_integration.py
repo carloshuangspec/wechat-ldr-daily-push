@@ -43,7 +43,7 @@ class DailyIntegrationTests(unittest.TestCase):
             fields = main.build_payload_fields()
         generate.assert_not_called()
         today.assert_called_once_with("Asia/Shanghai")
-        self.assertEqual(fields["love_line"], "Known: ≈2572 days\nMy favorite day")
+        self.assertEqual(fields["love_line"], "My favorite day\nKnown: ≈2572 days")
         self.assertEqual(
             wechat.build_template_data(fields)["love_line"]["value"], fields["love_line"]
         )
@@ -60,7 +60,7 @@ class DailyIntegrationTests(unittest.TestCase):
         ):
             fields = main.build_payload_fields()
         generate.assert_called_once_with(theme="ordinary days")
-        self.assertTrue(fields["love_line"].endswith("\nHere with you"))
+        self.assertTrue(fields["love_line"].startswith("Here with you\nKnown: ≈"))
 
     def test_stale_cn_config_uses_default_prompt(self) -> None:
         env = {**BASE_ENV, "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-15","exact":"Yesterday"}'}

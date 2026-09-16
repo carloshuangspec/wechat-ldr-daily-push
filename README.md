@@ -113,7 +113,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。无需为认识天数添加模板字段：现有 `love_line` 会包含两行英文文本，先是 `Known: ≈N days`，再是情话。`weather_source` 会标明本次选择的天气服务和官网链接：
+测试号模板字段必须与下面一致，固定标签请用英文。无需为认识天数添加模板字段：`love_line` 会包含两行英文文本，**先显示情话**，再显示 `Known: ≈N days`。这样只显示首行的消息摘要也会优先出现英文情话；仍须打开手机上的完整消息核对。`weather_source` 会标明本次选择的天气服务和官网链接：
 
 ```text
 {{greeting.DATA}}
@@ -133,8 +133,8 @@ A: Ann Arbor 20:00 Sunny 12°C
 B: Shanghai 08:00 Cloudy 22°C
 Together: 71 days
 Next meeting: in 95 days
-Known: ≈2572 days
 I choose you, always
+Known: ≈2572 days
 Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted
 ```
 
