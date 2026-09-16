@@ -132,7 +132,8 @@ jobs:
     needs: validate-dispatch
     if: >
       needs.validate-dispatch.result == 'success' &&
-      ((github.event_name == 'schedule' && github.event.schedule == '7 8 * * *') ||
+      ((github.event_name == 'schedule' && github.event.schedule == '7 8 * * *' &&
+        vars.ENABLE_CN_DAILY != '1') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
         (inputs.slot == 'cn' || inputs.slot == 'both')))
     runs-on: ubuntu-latest
@@ -161,8 +162,8 @@ jobs:
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}
           # 预览 job 故意不加载任何 WECHAT_*。
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
@@ -205,8 +206,7 @@ jobs:
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           # 预览 job 故意不加载任何 WECHAT_*。
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
@@ -256,8 +256,7 @@ jobs:
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
@@ -310,8 +309,8 @@ jobs:
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}
           WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
@@ -363,8 +362,8 @@ jobs:
           NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
           QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}
           WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}

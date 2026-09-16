@@ -23,7 +23,7 @@
 
 旧 `DRY_RUN` 已不参与发送决策；它缺失或为 `0` 都不能触发真实发送。
 
-本地预览不需要任何 API 凭据；未配置 QWeather 时会联网读取 Open-Meteo 的公开天气，网络失败则显示英文降级文案：
+本地预览不会加载微信凭据，但默认短句需要有效 `DEEPSEEK_API_KEY`；缺失或生成失败就整条跳过。CN 当天若有有效的手写 `exact` 可不调用 AI。未配置 QWeather 时会联网读取 Open-Meteo 的公开天气，网络失败则显示英文降级文案。下面仅是运行格式；没有通过安全环境提供 DeepSeek Key（或当天有效 `exact`）时会预期失败，不会发送微信：
 
 ```bash
 PUSH_SLOT=cn \
@@ -46,7 +46,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 - 女友测试：选择 `mode=live-cn`、`slot=cn`，并在 confirmation 精确输入 `SEND_CN_ONCE`。该 job 只能使用 `WECHAT_OPENID_CN`，不能读取本人的 OpenID。
 - 两条真发路径都限制为本仓库 `main` 分支、仓库所有者首次执行的手动 run；对该 run 点 Re-run 会被拒绝。槽位、短语、仓库、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行；定时事件也不能进入它们。
 
-阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` 即使启用定时 CN 也始终使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。手动 `live-self` / `live-cn` 只加载各自的收件人 OpenID；另有默认关闭的 `scheduled-cn`，仅在精确的 CN cron 和 `ENABLE_CN_DAILY=1` 时进入。三个真发 job 都只在各自的发送步骤加载对应 OpenID 与共用的三个微信 Secrets，并先运行单元测试。
+阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。若日后单独开启 CN 定时真发，同一 CN 定时事件会跳过自动预览，避免独立生成两句不同文案；手动预览仍可用。手动 `live-self` / `live-cn` 只加载各自的收件人 OpenID；另有默认关闭的 `scheduled-cn`，仅在精确的 CN cron 和 `ENABLE_CN_DAILY=1` 时进入。三个真发 job 都只在各自的发送步骤加载对应 OpenID 与共用的三个微信 Secrets，并先运行单元测试。
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认，但仍需 CN 收件人确认收到，并核对消息、换行和天气来源，然后才决定是否开启定时 CN。若发现问题先排查，不自动重发。
 
@@ -69,14 +69,19 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `WECHAT_OPENID_SELF` | Actions Secret | Carlos 本人的 US 槽位 openid，仅 `live-self` 读取 |
 | `WECHAT_OPENID_CN` | Actions Secret | 女友的 CN 槽位 openid，仅 `live-cn` / `scheduled-cn` 读取 |
 
-可选增强：
+短句默认运行必填；仅 CN 当天有有效 `exact` 时可跳过 API：
+
+| Name | 类型 | 说明 |
+|------|------|------|
+| `DEEPSEEK_API_KEY` | Actions Secret | 英文短句由 `deepseek-flash` 生成；失败/无效/缺 Key 均不发送；不会改用 Gemini 或静态短句 |
+
+可选增强与单日编辑：
 
 | Name | 类型 | 说明 |
 |------|------|------|
 | `QWEATHER_KEY` | Actions Secret | 可选的 QWeather Key；必须与账号专属 Host 成对配置 |
 | `QWEATHER_API_HOST` | Actions Secret | 可选的 QWeather 控制台 `*.qweatherapi.com` 账号专属 API Host |
-| `GEMINI_API_KEY` | Actions Secret | 可选，生成英文情话；Key 仅经 `x-goog-api-key` 请求头发送，失败或返回无效内容时使用内置英文短句 |
-| `GEMINI_MODEL` | Actions Variable | 可选覆盖；未设置时使用代码中固定默认模型 `gemini-3.8-flash` |
+| `DAILY_MESSAGE_CONFIG` | Actions Secret | 仅 CN 当天单日主题或手写英文原句；US/SELF 不加载；不配置则直接调用 DeepSeek |
 | `KNOWN_START_DATE` | Actions Variable | 可选约数起点，默认 `2019-09-02`，不是已核实的相识日 |
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
@@ -85,9 +90,13 @@ CN 每日发送的单独开关 `ENABLE_CN_DAILY` 是 Actions Variable，**不存
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
-Gemini 提示词为英文，返回非 ASCII、超长或无效文本时使用内置英文短句；未配置 Key 时不请求 Gemini，直接轮换内置短句。提示词不能百分之百保证语言，例如非英语但仅含 ASCII 字符的短句仍可能通过字符校验。`GEMINI_MODEL` 不必配置；只有需要显式更换模型时才设置覆盖值。真实 Key 只在仓库的 GitHub Actions Secret `GEMINI_API_KEY` 中配置，不要写入本地 `.env`、仓库、聊天或日志。如果某个 Key 已在聊天等不受控位置暴露，应在提供方撤销它，并私下创建替换 Key、更新该 Secret；不要再次分享 Key 值。
+每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 20 个可打印 ASCII 字符的英文短句，正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。返回不完整、非英文字符、超长、引号包裹、多行或接口失败时，不发送整个推送，也不换成固定句子。ASCII 校验不能百分之百判定语义是否英语，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
 
-先使用 `mode=preview`，只检查该 job 的实际 `Preview CN` 或 `Preview US` 步骤日志：其中的 `gemini_source=generated` 表示本次生成结果通过校验，`gemini_source=fallback` 表示本次使用内置英文短句。前面的 `Run tests` 步骤使用模拟响应，也可能打印 `gemini_source=generated`；不要用测试步骤或整条 job 的搜索结果判断真实生成。预览中的 `gemini_key_set` 仅表示该环境变量非空，**不证明 Gemini 已成功生成**；应以实际预览步骤的 `gemini_source` 区分本次结果。预览 job 始终 `SEND_MODE=dry-run`、不加载任何 `WECHAT_*`，不会发送微信消息；测试 Gemini 不需要开启 CN 日推，`ENABLE_CN_DAILY` 应保持未设置或不等于 `1`。
+想调整某个上海日期的内容，可在 Mac 上双击 `scripts/edit-daily-message.command`，填日期（默认上海今天）、可选主题 `theme`、可选手写英文原句 `exact`；至少填一项。`theme` 最多 120 字符，可写中英文，会发给 DeepSeek 引导生成；`exact` 必须为单行 1–20 个可打印 ASCII 字符，优先级高于主题且不请求 AI，原样进入消息。工具本地显示输入供确认后，仅通过标准输入将单个 JSON 对象写入 `DAILY_MESSAGE_CONFIG` Secret，不写入 Git 历史或临时文件。替换时需重新填完整内容，不能从 GitHub Secret 读回；工具可经单独确认删除此 Secret。日期不匹配的旧配置会被忽略，格式无效的配置会让运行安全失败。这个 Secret 仅加载到 CN 的预览和发送 job，SELF/US 不读取。
+
+GitHub 在工作流**排队时**读取仓库 Secret，故要在下一次 run 排队前完成编辑；排队后再更新或删除，不会更改那一次运行。DeepSeek [官方缓存说明](https://api-docs.deepseek.com/guides/kv_cache/)指出输入/输出前缀可能写入缓存，不要在主题中填写未经双方同意的聊天档案、凭据或第三方隐私。`exact` 不送 DeepSeek，但最终微信消息及当前预览日志都会展示它；Secret 的加密不隐藏已渲染的预览内容，仓库日志读取者可见。
+
+先使用 `mode=preview`、`slot=cn`，只检查该 job 的实际 `Preview CN` 步骤：`line_source=deepseek` 说明这一步的 API 结果通过校验；当天手写 `exact` 则为 `line_source=manual`，**不能证明 API 可用**。前面的 `Run tests` 步骤只用模拟响应，不能作为真实生成的证据。预览中的 `deepseek_key_set` 仅说明配置非空，不证明 Key 有效。主题预览和后续真发是两个独立请求，不保证生成同一句；手写原文在同一日期稳定。预览 job 始终不加载任何 `WECHAT_*`，不会发送微信消息；测试 API 不需要开启 CN 日推，`ENABLE_CN_DAILY` 保持未设置或不等于 `1`。
 
 QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 暂不迁移 v1，后续必须在停服前安排迁移。
 
@@ -98,7 +107,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 | 微信测试号 | https://mp.weixin.qq.com/debug/cgi-bin/sandbox?t=sandbox/login |
 | QWeather | https://www.qweather.com |
 | QWeather 开发平台 | https://dev.qweather.com/ |
-| Gemini API | https://aistudio.google.com/apikey |
+| DeepSeek API | https://platform.deepseek.com/ |
 
 ## 微信模板
 
@@ -135,7 +144,7 @@ GitHub Actions schedule 使用 IANA 时区，并避开整点：
 
 | 目标当地时间 | Cron + timezone | Job | 阶段 C 行为 |
 |--------------|-----------------|-----|-------------|
-| 中国约 08:07 | `7 8 * * *` + `Asia/Shanghai` | `preview-cn` | 始终 dry-run |
+| 中国约 08:07 | `7 8 * * *` + `Asia/Shanghai` | `preview-cn` | 开关关闭时 dry-run；启用 CN 真发后该定时预览跳过 |
 | 中国约 08:07 | `7 8 * * *` + `Asia/Shanghai` | `scheduled-cn` | 默认跳过；仅开关为 `1` 且通过事件、仓库、分支与首次运行门禁才真发 CN |
 | Detroit 约 08:13 | `13 8 * * *` + `America/Detroit` | `preview-us` | 始终 dry-run，不提供定时 US 真发 |
 
@@ -147,8 +156,10 @@ GitHub Actions schedule 使用 IANA 时区，并避开整点：
 src/main.py          # fail-closed 模式、数据组装、发送入口
 src/weather.py       # QWeather 或无密钥 Open-Meteo 双城天气
 src/dates.py         # 相爱天数、见面三态、当地日期时间
-src/gemini_line.py   # Gemini 英文情话 + 英文静态回退
+src/deepseek_line.py # DeepSeek 英文短句；失败不发
 src/wechat.py        # 脱敏的 token 与 template/send 调用
+src/daily_content.py # 仅 CN 的日期、主题和手写原句校验
+scripts/edit-daily-message.command # 本机单日内容编辑入口
 tests/               # stdlib unittest
 .github/workflows/daily-push.yml
 config.example.env

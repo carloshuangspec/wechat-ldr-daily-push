@@ -16,7 +16,6 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
 import dates  # noqa: E402
-import gemini_line  # noqa: E402
 import main  # noqa: E402
 import weather  # noqa: E402
 import wechat  # noqa: E402
@@ -51,6 +50,8 @@ SCHEDULED_CN_ENV = {
     "WECHAT_OPENID_CN": "TEST_CN_OPENID_DO_NOT_LOG",
 }
 
+TEST_FIELDS = {"love_line": "Known: ≈1 days\nHello"}
+
 
 class SendModeTests(unittest.TestCase):
     def test_default_is_dry_run_even_when_legacy_dry_run_is_zero(self) -> None:
@@ -70,7 +71,7 @@ class SendModeTests(unittest.TestCase):
                 },
                 clear=True,
             ),
-            patch.object(main, "build_payload_fields", return_value={}),
+            patch.object(main, "build_payload_fields", return_value=TEST_FIELDS),
             patch.object(main, "send_template") as send,
             redirect_stdout(stdout),
             redirect_stderr(StringIO()),
@@ -79,7 +80,7 @@ class SendModeTests(unittest.TestCase):
             send.assert_not_called()
             self.assertNotIn("TEST_TEMPLATE_ID_DO_NOT_LOG", stdout.getvalue())
             self.assertNotIn("TEST_OPENID_DO_NOT_LOG", stdout.getvalue())
-            self.assertFalse(json.loads(stdout.getvalue())["meta"]["gemini_key_set"])
+            self.assertFalse(json.loads(stdout.getvalue())["meta"]["deepseek_key_set"])
 
     def test_unknown_mode_stops_before_payload_build(self) -> None:
         for mode in ("unexpected", "live-cn", "0", "1", "true", "false"):
@@ -149,7 +150,7 @@ class SendModeTests(unittest.TestCase):
         stdout = StringIO()
         with (
             patch.dict(os.environ, SCHEDULED_CN_ENV, clear=True),
-            patch.object(main, "build_payload_fields", return_value={}) as build,
+            patch.object(main, "build_payload_fields", return_value=TEST_FIELDS) as build,
             patch.object(
                 main, "send_template", return_value={"errcode": 0, "msgid": "123"}
             ) as send,
@@ -417,7 +418,7 @@ class SendModeTests(unittest.TestCase):
                 },
                 clear=True,
             ),
-            patch.object(main, "build_payload_fields", return_value={}),
+            patch.object(main, "build_payload_fields", return_value=TEST_FIELDS),
             patch.object(
                 main, "send_template", return_value={"errcode": 0, "msgid": "123"}
             ) as send,
@@ -449,7 +450,7 @@ class SendModeTests(unittest.TestCase):
                 },
                 clear=True,
             ),
-            patch.object(main, "build_payload_fields", return_value={}),
+            patch.object(main, "build_payload_fields", return_value=TEST_FIELDS),
             patch.object(
                 main, "send_template", return_value={"errcode": 0, "msgid": "123"}
             ) as send,
@@ -687,223 +688,6 @@ class DateTests(unittest.TestCase):
             )
 
 
-class LoveLineTests(unittest.TestCase):
-    @staticmethod
-    def successful_response() -> Mock:
-        response = Mock()
-        response.status_code = 200
-        response.raise_for_status.return_value = None
-        response.json.return_value = {
-            "candidates": [
-                {
-                    "finishReason": "STOP",
-                    "content": {"parts": [{"text": "You are my home"}]},
-                }
-            ]
-        }
-        return response
-
-    def test_missing_gemini_key_reports_fallback_source_once(self) -> None:
-        stderr = StringIO()
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch.object(requests, "post") as post,
-            redirect_stderr(stderr),
-        ):
-            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-        post.assert_not_called()
-        self.assertEqual(stderr.getvalue(), "gemini_source=fallback\n")
-
-    def test_valid_gemini_response_reports_generated_source_once(self) -> None:
-        stderr = StringIO()
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.successful_response()),
-            redirect_stderr(stderr),
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-        self.assertEqual(stderr.getvalue(), "gemini_source=generated\n")
-        self.assertNotIn("TEST_KEY", stderr.getvalue())
-        self.assertNotIn("You are my home", stderr.getvalue())
-
-    def test_gemini_timeout_reports_fallback_source_without_error(self) -> None:
-        stderr = StringIO()
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(
-                requests, "post", side_effect=requests.Timeout("RAW_ERROR_BODY TEST_KEY")
-            ),
-            redirect_stderr(stderr),
-        ):
-            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-        self.assertEqual(stderr.getvalue(), "gemini_source=fallback\n")
-        self.assertNotIn("TEST_KEY", stderr.getvalue())
-        self.assertNotIn("RAW_ERROR_BODY", stderr.getvalue())
-
-    def test_static_fallback_is_english_and_fits_template(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(gemini_line.FALLBACK_LINES)
-            self.assertTrue(
-                all(line.isascii() and len(line) <= 20 for line in gemini_line.FALLBACK_LINES)
-            )
-            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-
-    def test_gemini_uses_an_english_prompt_and_short_english_result(self) -> None:
-        response = self.successful_response()
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=response) as post,
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-            prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
-            self.assertIn("English only", prompt)
-
-    def test_gemini_uses_low_thinking_and_room_for_output_without_sampling(self) -> None:
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.successful_response()) as post,
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-            self.assertEqual(
-                post.call_args.kwargs["json"]["generationConfig"],
-                {"thinkingConfig": {"thinkingLevel": "low"}, "maxOutputTokens": 512},
-            )
-
-    def test_gemini_defaults_to_frozen_model_url(self) -> None:
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.successful_response()) as post,
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-            self.assertEqual(
-                post.call_args.args[0],
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                "gemini-3.8-flash:generateContent",
-            )
-
-    def test_gemini_model_env_overrides_default(self) -> None:
-        with (
-            patch.dict(
-                os.environ,
-                {"GEMINI_API_KEY": "TEST_KEY", "GEMINI_MODEL": "gemini-3.6-flash"},
-                clear=True,
-            ),
-            patch.object(requests, "post", return_value=self.successful_response()) as post,
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-            self.assertEqual(
-                post.call_args.args[0],
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                "gemini-3.6-flash:generateContent",
-            )
-
-    def test_gemini_key_is_header_only(self) -> None:
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.successful_response()) as post,
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-            self.assertIn("headers", post.call_args.kwargs)
-            self.assertEqual(post.call_args.kwargs["headers"]["x-goog-api-key"], "TEST_KEY")
-            self.assertNotIn("params", post.call_args.kwargs)
-            self.assertNotIn("TEST_KEY", post.call_args.args[0])
-
-    def test_gemini_disallows_redirects(self) -> None:
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.successful_response()) as post,
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-            self.assertIn("allow_redirects", post.call_args.kwargs)
-            self.assertIs(post.call_args.kwargs["allow_redirects"], False)
-
-    def test_gemini_max_tokens_with_short_text_uses_fallback(self) -> None:
-        response = self.successful_response()
-        response.json.return_value["candidates"][0]["finishReason"] = "MAX_TOKENS"
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=response),
-        ):
-            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-
-    def test_gemini_stop_with_short_text_returns_generated_line(self) -> None:
-        response = self.successful_response()
-        response.json.return_value["candidates"][0]["finishReason"] = "STOP"
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=response),
-        ):
-            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
-
-    def test_gemini_abnormal_or_missing_finish_reason_uses_fallback(self) -> None:
-        for finish_reason in ("SAFETY", "RECITATION", "SPII", "OTHER", None):
-            response = self.successful_response()
-            candidate = response.json.return_value["candidates"][0]
-            if finish_reason is None:
-                del candidate["finishReason"]
-            else:
-                candidate["finishReason"] = finish_reason
-            with (
-                self.subTest(finish_reason=finish_reason),
-                patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-                patch.object(requests, "post", return_value=response),
-            ):
-                self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-
-    def test_gemini_redirect_with_candidate_uses_fallback(self) -> None:
-        response = self.successful_response()
-        response.status_code = 302
-        with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=response),
-        ):
-            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-
-    def test_gemini_non_english_or_too_long_uses_english_fallback(self) -> None:
-        response = Mock()
-        response.status_code = 200
-        response.raise_for_status.return_value = None
-        for generated in ("早安，想你了", "Missing you across all the miles between us"):
-            response.json.return_value = {
-                "candidates": [
-                    {"finishReason": "STOP", "content": {"parts": [{"text": generated}]}}
-                ]
-            }
-            with (
-                self.subTest(generated=generated),
-                patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-                patch.object(requests, "post", return_value=response),
-            ):
-                self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
-
-    def test_malformed_gemini_responses_use_english_fallback(self) -> None:
-        response = Mock()
-        response.status_code = 200
-        response.raise_for_status.return_value = None
-        bodies = (
-            [],
-            {"candidates": "not-a-list"},
-            {"candidates": [{"finishReason": "STOP", "content": {"parts": [123]}}]},
-            {
-                "candidates": [
-                    {"finishReason": "STOP", "content": {"parts": [{"text": 123}]}}
-                ]
-            },
-        )
-        for body in bodies:
-            response.json.return_value = body
-            with (
-                self.subTest(body=body),
-                patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
-                patch.object(requests, "post", return_value=response),
-            ):
-                try:
-                    line = gemini_line.generate_love_line()
-                except (AttributeError, TypeError) as exc:
-                    self.fail(f"Malformed response escaped as {type(exc).__name__}")
-                self.assertIn(line, gemini_line.FALLBACK_LINES)
-
-
 class WeChatSafetyTests(unittest.TestCase):
     @staticmethod
     def response(data: object) -> Mock:
@@ -1049,7 +833,7 @@ class WeChatSafetyTests(unittest.TestCase):
                 },
                 clear=True,
             ),
-            patch.object(main, "build_payload_fields", return_value={}),
+            patch.object(main, "build_payload_fields", return_value=TEST_FIELDS),
             patch.object(main, "send_template", side_effect=RuntimeError(sentinel)),
             redirect_stdout(stdout),
             redirect_stderr(stderr),
@@ -1076,7 +860,7 @@ class WeChatSafetyTests(unittest.TestCase):
                 },
                 clear=True,
             ),
-            patch.object(main, "build_payload_fields", return_value={}),
+            patch.object(main, "build_payload_fields", return_value=TEST_FIELDS),
             patch.object(
                 main,
                 "send_template",
@@ -1451,9 +1235,9 @@ class WorkflowPolicyTests(unittest.TestCase):
             self.assertNotIn("WECHAT_OPENID_SELF:", job)
             self.assertNotIn("SEND_MODE: ${{", job)
 
-    def test_optional_gemini_is_available_in_each_message_job(self) -> None:
-        self.assertEqual(self.workflow.count("GEMINI_API_KEY:"), 5)
-        self.assertEqual(self.workflow.count("GEMINI_MODEL:"), 5)
+    def test_deepseek_is_available_in_each_message_job(self) -> None:
+        self.assertEqual(self.workflow.count("DEEPSEEK_API_KEY:"), 5)
+        self.assertNotIn("GEMINI_API_KEY:", self.workflow)
 
     def test_manual_live_jobs_are_isolated_by_recipient_and_event(self) -> None:
         self.assertIn("  live-self:", self.workflow)

@@ -87,7 +87,13 @@ def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
     }
     out: dict[str, dict[str, str]] = {}
     for key, limit in limits.items():
-        out[key] = {"value": _short(fields.get(key, ""), limit)}
+        if key == "love_line":
+            line = str(fields.get(key, ""))
+            if len(line) > limit:
+                raise ValueError("Love line exceeds template limit")
+            out[key] = {"value": line}
+        else:
+            out[key] = {"value": _short(fields.get(key, ""), limit)}
     return out
 
 

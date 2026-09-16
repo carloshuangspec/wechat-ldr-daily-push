@@ -7,8 +7,9 @@ import os
 import sys
 from datetime import date
 
+from daily_content import choose_line, parse_config
 from dates import local_now_str, local_today, love_days, meet_status
-from gemini_line import generate_love_line
+from deepseek_line import generate_love_line
 from weather import brief_weather, weather_source
 from wechat import build_template_data, send_template
 
@@ -94,7 +95,7 @@ def resolve_openid() -> str:
 
 
 def validate_live_configuration() -> str:
-    """在任何天气、Gemini 或微信请求之前验证真发配置。"""
+    """在任何天气、DeepSeek 或微信请求之前验证真发配置。"""
     missing = [
         name
         for name in ("WECHAT_APP_ID", "WECHAT_APP_SECRET", "WECHAT_TEMPLATE_ID")
@@ -129,11 +130,29 @@ def build_payload_fields() -> dict[str, str]:
     # 各槽位按对应城市时区计算「今天」。
     today = local_today(tz_b if slot == "cn" else tz_a)
     known_days = love_days(known_start, today=today)
+    config = parse_config(os.getenv("DAILY_MESSAGE_CONFIG", "")) if slot == "cn" else None
+    exact, theme, _, override_status = choose_line(config, today)
+    if slot == "cn":
+        print(f"shanghai_day={today.isoformat()} override_status={override_status}", file=sys.stderr)
 
     weather_a = brief_weather(city_a)
     weather_b = brief_weather(city_b)
     known_line = f"Known: ≈{known_days} days\n"
-    love_line = known_line + generate_love_line()
+    if exact is not None:
+        short_line = exact
+        print("line_source=manual", file=sys.stderr)
+    else:
+        short_line = generate_love_line(theme=theme)
+    if (
+        not isinstance(short_line, str)
+        or not 1 <= len(short_line) <= 20
+        or not short_line.isascii()
+        or not short_line.isprintable()
+    ):
+        raise ConfigError("Invalid English love line")
+    love_line = known_line + short_line
+    if len(love_line) > 64:
+        raise ConfigError("Love line exceeds template limit")
 
     ld = love_days(love_start, today=today)
     fields = {
@@ -174,13 +193,15 @@ def main() -> int:
 
     try:
         fields = build_payload_fields()
+        template_data = build_template_data(fields)
+        if template_data["love_line"]["value"] != fields["love_line"]:
+            raise ConfigError("Love line was not rendered intact")
     except SystemExit:
         raise
     except Exception:
         print("组装数据失败（详情已隐藏）", file=sys.stderr)
         return 1
 
-    template_data = build_template_data(fields)
     if mode == "dry-run":
         payload_preview = {
             "touser": "(dry-run; WeChat credentials not loaded)",
@@ -191,7 +212,7 @@ def main() -> int:
                 "send_mode": mode,
                 "qweather_key_set": bool(_env("QWEATHER_KEY")),
                 "qweather_host_set": bool(_env("QWEATHER_API_HOST")),
-                "gemini_key_set": bool(_env("GEMINI_API_KEY")),
+                "deepseek_key_set": bool(_env("DEEPSEEK_API_KEY")),
             },
         }
         print(json.dumps(payload_preview, ensure_ascii=False, indent=2))
@@ -199,7 +220,7 @@ def main() -> int:
         return 0
 
     try:
-        result = send_template(openid=openid, data=fields)
+        result = send_template(openid=openid, data=template_data)
         safe_result = {
             "ok": True,
             "errcode": result["errcode"],
