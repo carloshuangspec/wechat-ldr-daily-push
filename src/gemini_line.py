@@ -36,7 +36,7 @@ def generate_love_line(timeout: float = 15.0) -> str:
     if not api_key:
         return _fallback()
 
-    model = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+    model = (os.getenv("GEMINI_MODEL") or "gemini-3.8-flash").strip()
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent"
@@ -56,10 +56,13 @@ def generate_love_line(timeout: float = 15.0) -> str:
     try:
         response = requests.post(
             url,
-            params={"key": api_key},
+            headers={"x-goog-api-key": api_key},
             json=payload,
             timeout=timeout,
+            allow_redirects=False,
         )
+        if response.status_code != 200:
+            return _fallback()
         response.raise_for_status()
         data = response.json()
         candidates = data.get("candidates") or []

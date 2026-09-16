@@ -688,6 +688,16 @@ class DateTests(unittest.TestCase):
 
 
 class LoveLineTests(unittest.TestCase):
+    @staticmethod
+    def successful_response() -> Mock:
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "You are my home"}]}}]
+        }
+        return response
+
     def test_static_fallback_is_english_and_fits_template(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertTrue(gemini_line.FALLBACK_LINES)
@@ -697,11 +707,7 @@ class LoveLineTests(unittest.TestCase):
             self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
 
     def test_gemini_uses_an_english_prompt_and_short_english_result(self) -> None:
-        response = Mock()
-        response.raise_for_status.return_value = None
-        response.json.return_value = {
-            "candidates": [{"content": {"parts": [{"text": "You are my home"}]}}]
-        }
+        response = self.successful_response()
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", return_value=response) as post,
@@ -710,8 +716,66 @@ class LoveLineTests(unittest.TestCase):
             prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
             self.assertIn("English only", prompt)
 
+    def test_gemini_defaults_to_frozen_model_url(self) -> None:
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.successful_response()) as post,
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+            self.assertEqual(
+                post.call_args.args[0],
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                "gemini-3.8-flash:generateContent",
+            )
+
+    def test_gemini_model_env_overrides_default(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "TEST_KEY", "GEMINI_MODEL": "gemini-3.6-flash"},
+                clear=True,
+            ),
+            patch.object(requests, "post", return_value=self.successful_response()) as post,
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+            self.assertEqual(
+                post.call_args.args[0],
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                "gemini-3.6-flash:generateContent",
+            )
+
+    def test_gemini_key_is_header_only(self) -> None:
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.successful_response()) as post,
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+            self.assertIn("headers", post.call_args.kwargs)
+            self.assertEqual(post.call_args.kwargs["headers"]["x-goog-api-key"], "TEST_KEY")
+            self.assertNotIn("params", post.call_args.kwargs)
+            self.assertNotIn("TEST_KEY", post.call_args.args[0])
+
+    def test_gemini_disallows_redirects(self) -> None:
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.successful_response()) as post,
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+            self.assertIn("allow_redirects", post.call_args.kwargs)
+            self.assertIs(post.call_args.kwargs["allow_redirects"], False)
+
+    def test_gemini_redirect_with_candidate_uses_fallback(self) -> None:
+        response = self.successful_response()
+        response.status_code = 302
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=response),
+        ):
+            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+
     def test_gemini_non_english_or_too_long_uses_english_fallback(self) -> None:
         response = Mock()
+        response.status_code = 200
         response.raise_for_status.return_value = None
         for generated in ("早安，想你了", "Missing you across all the miles between us"):
             response.json.return_value = {
@@ -726,6 +790,7 @@ class LoveLineTests(unittest.TestCase):
 
     def test_malformed_gemini_responses_use_english_fallback(self) -> None:
         response = Mock()
+        response.status_code = 200
         response.raise_for_status.return_value = None
         bodies = (
             [],
