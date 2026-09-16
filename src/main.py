@@ -35,7 +35,7 @@ def validate_send_context(mode: str, slot: str) -> None:
         raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
     if mode != "live":
         return
-    recipient = _env("LIVE_RECIPIENT")
+    recipient = os.getenv("LIVE_RECIPIENT")
     allowed = {
         "self": ("us", "SEND_SELF_ONCE"),
         "cn": ("cn", "SEND_CN_ONCE"),
@@ -45,7 +45,7 @@ def validate_send_context(mode: str, slot: str) -> None:
     expected_slot, expected_confirmation = allowed[recipient]
     if slot != expected_slot:
         raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
-    if _env("LIVE_CONFIRMATION") != expected_confirmation:
+    if os.getenv("LIVE_CONFIRMATION") != expected_confirmation:
         raise ConfigError("live 缺少精确确认短语")
 
     # 防误操作门禁：阶段 C 只接受与受控 workflow_dispatch 匹配的上下文。
@@ -65,8 +65,8 @@ def validate_send_context(mode: str, slot: str) -> None:
 
 def resolve_openid() -> str:
     """按已选角色解析专用 OpenID，不使用通用或另一位接收者回退。"""
-    recipient = _env("LIVE_RECIPIENT")
-    slot = _env("PUSH_SLOT")
+    recipient = os.getenv("LIVE_RECIPIENT")
+    slot = os.getenv("PUSH_SLOT")
     if (recipient, slot) == ("self", "us"):
         name = "WECHAT_OPENID_SELF"
     elif (recipient, slot) == ("cn", "cn"):
@@ -150,9 +150,9 @@ def build_payload_fields() -> dict[str, str]:
 def main() -> int:
     try:
         mode = resolve_send_mode()
-        raw_slot = _env("PUSH_SLOT")
-        validate_send_context(mode, raw_slot if mode == "live" else raw_slot.lower())
-        slot = raw_slot.lower()
+        raw_slot = os.getenv("PUSH_SLOT") or ""
+        slot = raw_slot.strip().lower()
+        validate_send_context(mode, raw_slot if mode == "live" else slot)
         openid = validate_live_configuration() if mode == "live" else ""
     except ConfigError as exc:
         print(f"配置错误: {exc}", file=sys.stderr)

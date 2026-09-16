@@ -180,9 +180,12 @@ class SendModeTests(unittest.TestCase):
         invalid_values = {
             "missing role": ("LIVE_RECIPIENT", ""),
             "unknown role": ("LIVE_RECIPIENT", "both"),
+            "padded role": ("LIVE_RECIPIENT", "self "),
             "swapped slot": ("PUSH_SLOT", "cn"),
             "non-exact slot": ("PUSH_SLOT", "US"),
+            "padded slot": ("PUSH_SLOT", " us"),
             "wrong confirmation": ("LIVE_CONFIRMATION", "SEND_CN_ONCE"),
+            "padded confirmation": ("LIVE_CONFIRMATION", " SEND_SELF_ONCE"),
             "schedule event": ("GITHUB_EVENT_NAME", "schedule"),
             "non-owner actor": ("GITHUB_ACTOR", "someone-else"),
             "non-owner triggering actor": ("GITHUB_TRIGGERING_ACTOR", "someone-else"),
@@ -264,6 +267,28 @@ class SendModeTests(unittest.TestCase):
                         "WECHAT_OPENID_SELF": "TEST_SELF_OPENID",
                         "WECHAT_OPENID_CN": "TEST_CN_OPENID",
                     },
+                    clear=True,
+                ),
+            ):
+                with self.assertRaises(main.ConfigError):
+                    main.resolve_openid()
+
+    def test_resolve_openid_rejects_padded_role_or_slot(self) -> None:
+        base_env = {
+            "LIVE_RECIPIENT": "self",
+            "PUSH_SLOT": "us",
+            "WECHAT_OPENID_SELF": "TEST_SELF_OPENID",
+            "WECHAT_OPENID_CN": "TEST_CN_OPENID",
+        }
+        for name, padded_value in (
+            ("LIVE_RECIPIENT", "self "),
+            ("PUSH_SLOT", " us"),
+        ):
+            with (
+                self.subTest(name=name),
+                patch.dict(
+                    os.environ,
+                    {**base_env, name: padded_value},
                     clear=True,
                 ),
             ):
