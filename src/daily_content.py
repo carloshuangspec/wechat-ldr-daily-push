@@ -24,10 +24,11 @@ def validate_inputs(day: str, theme: str | None, exact: str | None) -> dict[str,
     if not isinstance(day, str) or not _DAY_RE.fullmatch(day):
         raise DailyContentError()
     try:
-        if date.fromisoformat(day).isoformat() != day:
-            raise DailyContentError()
+        parsed_day = date.fromisoformat(day)
     except ValueError:
-        raise DailyContentError() from None
+        parsed_day = None
+    if parsed_day is None or parsed_day.isoformat() != day:
+        raise DailyContentError()
 
     result = {"date": day}
     if theme is not None and theme != "":
@@ -85,9 +86,10 @@ def parse_config(raw: str) -> dict[str, str] | None:
         raise DailyContentError()
     try:
         config = json.loads(raw, object_pairs_hook=_unique_object)
-        return _validate_config(config)
     except (ValueError, TypeError, RecursionError):
-        raise DailyContentError() from None
+        config = None
+    # Raise only after leaving the handler: an exception context can retain raw JSON.
+    return _validate_config(config)
 
 
 def choose_line(

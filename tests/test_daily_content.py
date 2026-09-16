@@ -126,6 +126,26 @@ class ParseConfigTests(unittest.TestCase):
             self.assertEqual(str(caught.exception), "Invalid daily content configuration.")
             self.assertNotIn(marker, str(caught.exception))
 
+    def test_malformed_or_duplicate_json_does_not_retain_raw_in_error_context(self) -> None:
+        marker = "NON_SECRET_TEST_MARKER"
+        malformed = '{"date":"2026-09-16","theme":"' + marker + '"'
+        duplicate = (
+            '{"date":"2026-09-16","theme":"'
+            + marker
+            + '","theme":"Hello"}'
+        )
+        for raw in (malformed, duplicate):
+            with self.subTest(raw=raw), self.assertRaises(DailyContentError) as caught:
+                parse_config(raw)
+            self.assertIsNone(caught.exception.__context__)
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertNotIn(marker, str(caught.exception))
+
+    def test_invalid_calendar_date_does_not_retain_parser_error_context(self) -> None:
+        with self.assertRaises(DailyContentError) as caught:
+            parse_config('{"date":"2026-02-29","theme":"Hello"}')
+        self.assertIsNone(caught.exception.__context__)
+
 
 class ChooseLineTests(unittest.TestCase):
     def test_no_config_uses_generated_line(self) -> None:
