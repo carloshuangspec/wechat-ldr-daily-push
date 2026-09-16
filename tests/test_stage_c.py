@@ -23,6 +23,7 @@ import wechat  # noqa: E402
 
 
 LIVE_GITHUB_ENV = {
+    "LIVE_RECIPIENT": "cn",
     "LIVE_CONFIRMATION": "SEND_CN_ONCE",
     "GITHUB_ACTIONS": "true",
     "GITHUB_EVENT_NAME": "workflow_dispatch",
@@ -87,9 +88,23 @@ class SendModeTests(unittest.TestCase):
             with self.assertRaises(main.ConfigError):
                 main.validate_send_context("live", "cn")
 
+    def test_live_self_allows_owner_first_attempt_us_dispatch(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                **LIVE_GITHUB_ENV,
+                "LIVE_RECIPIENT": "self",
+                "LIVE_CONFIRMATION": "SEND_SELF_ONCE",
+            },
+            clear=True,
+        ):
+            main.validate_send_context("live", "us")
+
     def test_local_live_cn_is_rejected(self) -> None:
         with patch.dict(
-            os.environ, {"LIVE_CONFIRMATION": "SEND_CN_ONCE"}, clear=True
+            os.environ,
+            {"LIVE_RECIPIENT": "cn", "LIVE_CONFIRMATION": "SEND_CN_ONCE"},
+            clear=True,
         ):
             with self.assertRaises(main.ConfigError):
                 main.validate_send_context("live", "cn")
@@ -98,6 +113,7 @@ class SendModeTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "LIVE_RECIPIENT": "cn",
                 "LIVE_CONFIRMATION": "SEND_CN_ONCE",
                 "GITHUB_ACTIONS": "true",
                 "GITHUB_EVENT_NAME": "schedule",
@@ -148,6 +164,47 @@ class SendModeTests(unittest.TestCase):
                 build.assert_not_called()
                 send.assert_not_called()
 
+    def test_invalid_live_self_context_stops_before_weather_build_or_send(self) -> None:
+        valid_env = {
+            "SEND_MODE": "live",
+            "PUSH_SLOT": "us",
+            **LIVE_GITHUB_ENV,
+            "LIVE_RECIPIENT": "self",
+            "LIVE_CONFIRMATION": "SEND_SELF_ONCE",
+            "WECHAT_APP_ID": "TEST_APP_ID",
+            "WECHAT_APP_SECRET": "TEST_SECRET",
+            "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE",
+            "WECHAT_OPENID_SELF": "TEST_SELF_OPENID",
+            "WECHAT_OPENID_CN": "TEST_CN_OPENID_DO_NOT_USE",
+        }
+        invalid_values = {
+            "missing role": ("LIVE_RECIPIENT", ""),
+            "unknown role": ("LIVE_RECIPIENT", "both"),
+            "swapped slot": ("PUSH_SLOT", "cn"),
+            "non-exact slot": ("PUSH_SLOT", "US"),
+            "wrong confirmation": ("LIVE_CONFIRMATION", "SEND_CN_ONCE"),
+            "schedule event": ("GITHUB_EVENT_NAME", "schedule"),
+            "non-owner actor": ("GITHUB_ACTOR", "someone-else"),
+            "non-owner triggering actor": ("GITHUB_TRIGGERING_ACTOR", "someone-else"),
+            "wrong branch": ("GITHUB_REF", "refs/heads/feature"),
+            "wrong repository": ("GITHUB_REPOSITORY", "someone/fork"),
+            "retry": ("GITHUB_RUN_ATTEMPT", "2"),
+            "missing self ID": ("WECHAT_OPENID_SELF", ""),
+        }
+        for case, (name, bad_value) in invalid_values.items():
+            with (
+                self.subTest(case=case),
+                patch.dict(os.environ, {**valid_env, name: bad_value}, clear=True),
+                patch.object(main, "brief_weather") as weather_call,
+                patch.object(main, "build_payload_fields") as build,
+                patch.object(main, "send_template") as send,
+                redirect_stderr(StringIO()),
+            ):
+                self.assertEqual(main.main(), 2)
+                weather_call.assert_not_called()
+                build.assert_not_called()
+                send.assert_not_called()
+
     def test_live_cn_requires_config_before_payload_build(self) -> None:
         with (
             patch.dict(
@@ -164,6 +221,88 @@ class SendModeTests(unittest.TestCase):
             self.assertEqual(main.main(), 2)
             build.assert_not_called()
 
+    def test_live_self_resolves_only_self_openid_with_both_present(self) -> None:
+        self_openid = "TEST_SELF_OPENID_DO_NOT_LOG"
+        cn_openid = "TEST_CN_OPENID_DO_NOT_USE"
+        with patch.dict(
+            os.environ,
+            {
+                "LIVE_RECIPIENT": "self",
+                "PUSH_SLOT": "us",
+                "WECHAT_OPENID_SELF": self_openid,
+                "WECHAT_OPENID_CN": cn_openid,
+                "WECHAT_OPENID": "TEST_GENERIC_OPENID_DO_NOT_USE",
+            },
+            clear=True,
+        ):
+            self.assertEqual(main.resolve_openid(), self_openid)
+
+    def test_live_cn_resolves_only_cn_openid_with_both_present(self) -> None:
+        cn_openid = "TEST_CN_OPENID_DO_NOT_LOG"
+        with patch.dict(
+            os.environ,
+            {
+                "LIVE_RECIPIENT": "cn",
+                "PUSH_SLOT": "cn",
+                "WECHAT_OPENID_SELF": "TEST_SELF_OPENID_DO_NOT_USE",
+                "WECHAT_OPENID_CN": cn_openid,
+                "WECHAT_OPENID": "TEST_GENERIC_OPENID_DO_NOT_USE",
+            },
+            clear=True,
+        ):
+            self.assertEqual(main.resolve_openid(), cn_openid)
+
+    def test_resolve_openid_rejects_non_exact_slot(self) -> None:
+        for role, slot in (("self", "US"), ("cn", "CN")):
+            with (
+                self.subTest(role=role),
+                patch.dict(
+                    os.environ,
+                    {
+                        "LIVE_RECIPIENT": role,
+                        "PUSH_SLOT": slot,
+                        "WECHAT_OPENID_SELF": "TEST_SELF_OPENID",
+                        "WECHAT_OPENID_CN": "TEST_CN_OPENID",
+                    },
+                    clear=True,
+                ),
+            ):
+                with self.assertRaises(main.ConfigError):
+                    main.resolve_openid()
+
+    def test_live_self_main_sends_only_to_self_id(self) -> None:
+        stdout = StringIO()
+        self_openid = "TEST_SELF_OPENID_DO_NOT_LOG"
+        cn_openid = "TEST_CN_OPENID_DO_NOT_USE"
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SEND_MODE": "live",
+                    "PUSH_SLOT": "us",
+                    **LIVE_GITHUB_ENV,
+                    "LIVE_RECIPIENT": "self",
+                    "LIVE_CONFIRMATION": "SEND_SELF_ONCE",
+                    "WECHAT_APP_ID": "TEST_APP_ID",
+                    "WECHAT_APP_SECRET": "TEST_SECRET_DO_NOT_LOG",
+                    "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE_DO_NOT_LOG",
+                    "WECHAT_OPENID_SELF": self_openid,
+                    "WECHAT_OPENID_CN": cn_openid,
+                },
+                clear=True,
+            ),
+            patch.object(main, "build_payload_fields", return_value={}),
+            patch.object(
+                main, "send_template", return_value={"errcode": 0, "msgid": "123"}
+            ) as send,
+            redirect_stdout(stdout),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main.main(), 0)
+            self.assertEqual(send.call_args.kwargs["openid"], self_openid)
+            for sentinel in (self_openid, cn_openid, "TEST_SECRET_DO_NOT_LOG"):
+                self.assertNotIn(sentinel, stdout.getvalue())
+
     def test_live_cn_uses_only_dedicated_cn_openid(self) -> None:
         stdout = StringIO()
         cn_openid = "TEST_CN_OPENID_DO_NOT_LOG"
@@ -179,6 +318,7 @@ class SendModeTests(unittest.TestCase):
                     "WECHAT_APP_SECRET": "TEST_SECRET_DO_NOT_LOG",
                     "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE_DO_NOT_LOG",
                     "WECHAT_OPENID_CN": cn_openid,
+                    "WECHAT_OPENID_SELF": "TEST_SELF_OPENID_DO_NOT_USE",
                     "WECHAT_OPENID": generic_openid,
                 },
                 clear=True,
@@ -196,6 +336,7 @@ class SendModeTests(unittest.TestCase):
             for sentinel in (
                 cn_openid,
                 generic_openid,
+                "TEST_SELF_OPENID_DO_NOT_USE",
                 "TEST_SECRET_DO_NOT_LOG",
                 "TEST_TEMPLATE_DO_NOT_LOG",
             ):

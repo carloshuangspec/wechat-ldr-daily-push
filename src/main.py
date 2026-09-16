@@ -30,14 +30,22 @@ def resolve_send_mode() -> str:
 
 
 def validate_send_context(mode: str, slot: str) -> None:
-    """阶段 C 只允许一次受控 workflow_dispatch 进入 CN 真发。"""
+    """手动真发只允许收件角色、时段和确认短语精确匹配。"""
     if slot not in {"cn", "us"}:
         raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
     if mode != "live":
         return
-    if slot != "cn":
-        raise ConfigError("阶段 C 仅允许 PUSH_SLOT=cn 使用 live 模式")
-    if _env("LIVE_CONFIRMATION") != "SEND_CN_ONCE":
+    recipient = _env("LIVE_RECIPIENT")
+    allowed = {
+        "self": ("us", "SEND_SELF_ONCE"),
+        "cn": ("cn", "SEND_CN_ONCE"),
+    }
+    if recipient not in allowed:
+        raise ConfigError("live 需要明确的 LIVE_RECIPIENT=self 或 cn")
+    expected_slot, expected_confirmation = allowed[recipient]
+    if slot != expected_slot:
+        raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
+    if _env("LIVE_CONFIRMATION") != expected_confirmation:
         raise ConfigError("live 缺少精确确认短语")
 
     # 防误操作门禁：阶段 C 只接受与受控 workflow_dispatch 匹配的上下文。
@@ -56,18 +64,23 @@ def validate_send_context(mode: str, slot: str) -> None:
 
 
 def resolve_openid() -> str:
-    """阶段 C 仅解析专用的 CN 接收方，不使用通用或 US 回退。"""
-    slot = _env("PUSH_SLOT").lower()
-    if slot != "cn":
-        raise ConfigError("阶段 C 只能解析 CN 接收方")
-    oid = _env("WECHAT_OPENID_CN")
+    """按已选角色解析专用 OpenID，不使用通用或另一位接收者回退。"""
+    recipient = _env("LIVE_RECIPIENT")
+    slot = _env("PUSH_SLOT")
+    if (recipient, slot) == ("self", "us"):
+        name = "WECHAT_OPENID_SELF"
+    elif (recipient, slot) == ("cn", "cn"):
+        name = "WECHAT_OPENID_CN"
+    else:
+        raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
+    oid = _env(name)
     if not oid:
-        raise ConfigError("缺少 WECHAT_OPENID_CN")
+        raise ConfigError(f"缺少 {name}")
     return oid
 
 
 def validate_live_configuration() -> str:
-    """在任何天气、Gemini 或微信请求之前验证 CN 真发配置。"""
+    """在任何天气、Gemini 或微信请求之前验证真发配置。"""
     missing = [
         name
         for name in ("WECHAT_APP_ID", "WECHAT_APP_SECRET", "WECHAT_TEMPLATE_ID")
@@ -137,8 +150,9 @@ def build_payload_fields() -> dict[str, str]:
 def main() -> int:
     try:
         mode = resolve_send_mode()
-        slot = _env("PUSH_SLOT").lower()
-        validate_send_context(mode, slot)
+        raw_slot = _env("PUSH_SLOT")
+        validate_send_context(mode, raw_slot if mode == "live" else raw_slot.lower())
+        slot = raw_slot.lower()
         openid = validate_live_configuration() if mode == "live" else ""
     except ConfigError as exc:
         print(f"配置错误: {exc}", file=sys.stderr)
