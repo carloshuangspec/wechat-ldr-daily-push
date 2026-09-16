@@ -716,6 +716,17 @@ class LoveLineTests(unittest.TestCase):
             prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
             self.assertIn("English only", prompt)
 
+    def test_gemini_uses_low_thinking_and_room_for_output_without_sampling(self) -> None:
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.successful_response()) as post,
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+            self.assertEqual(
+                post.call_args.kwargs["json"]["generationConfig"],
+                {"thinkingConfig": {"thinkingLevel": "low"}, "maxOutputTokens": 512},
+            )
+
     def test_gemini_defaults_to_frozen_model_url(self) -> None:
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
@@ -763,6 +774,24 @@ class LoveLineTests(unittest.TestCase):
             self.assertEqual(gemini_line.generate_love_line(), "You are my home")
             self.assertIn("allow_redirects", post.call_args.kwargs)
             self.assertIs(post.call_args.kwargs["allow_redirects"], False)
+
+    def test_gemini_max_tokens_with_short_text_uses_fallback(self) -> None:
+        response = self.successful_response()
+        response.json.return_value["candidates"][0]["finishReason"] = "MAX_TOKENS"
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=response),
+        ):
+            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+
+    def test_gemini_stop_with_short_text_returns_generated_line(self) -> None:
+        response = self.successful_response()
+        response.json.return_value["candidates"][0]["finishReason"] = "STOP"
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=response),
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
 
     def test_gemini_redirect_with_candidate_uses_fallback(self) -> None:
         response = self.successful_response()

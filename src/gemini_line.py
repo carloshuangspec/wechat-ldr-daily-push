@@ -49,8 +49,8 @@ def generate_love_line(timeout: float = 15.0) -> str:
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.9,
-            "maxOutputTokens": 64,
+            "thinkingConfig": {"thinkingLevel": "low"},
+            "maxOutputTokens": 512,
         },
     }
     try:
@@ -68,7 +68,10 @@ def generate_love_line(timeout: float = 15.0) -> str:
         candidates = data.get("candidates") or []
         if not candidates:
             return _fallback()
-        parts = (candidates[0].get("content") or {}).get("parts") or []
+        candidate = candidates[0]
+        if candidate.get("finishReason") == "MAX_TOKENS":
+            return _fallback()
+        parts = (candidate.get("content") or {}).get("parts") or []
         if not parts:
             return _fallback()
         line = (parts[0].get("text") or "").strip()
