@@ -83,7 +83,7 @@ def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
         "love_days": 12,
         "meet_days": 12,
         "love_line": 20,
-        "weather_source": 40,
+        "weather_source": 120,
     }
     out: dict[str, dict[str, str]] = {}
     for key, limit in limits.items():

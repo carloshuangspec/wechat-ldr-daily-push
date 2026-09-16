@@ -276,6 +276,30 @@ class DateTests(unittest.TestCase):
                 all(value["value"].replace("°", "").isascii() for value in data.values())
             )
 
+    def test_keyless_weather_source_is_attributed(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "cn",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Thinking of you"),
+        ):
+            fields = main.build_payload_fields()
+            expected = (
+                "Open-Meteo https://open-meteo.com | GeoNames | "
+                "CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted"
+            )
+            self.assertEqual(fields["weather_source"], expected)
+            self.assertEqual(
+                wechat.build_template_data(fields)["weather_source"]["value"], expected
+            )
+
 
 class LoveLineTests(unittest.TestCase):
     def test_static_fallback_is_english_and_fits_template(self) -> None:
@@ -630,21 +654,24 @@ class QWeatherTests(unittest.TestCase):
             self.assertEqual(weather.brief_weather("Shanghai"), "Mostly cloudy")
 
 
-    def test_missing_host_degrades_without_request(self) -> None:
+    def test_missing_host_uses_keyless_fallback_without_leaking_key(self) -> None:
         with patch.dict(
             os.environ, {"QWEATHER_KEY": "TEST_QWEATHER_KEY"}, clear=True
-        ), patch.object(weather.requests, "get") as request:
+        ), patch.object(weather.requests, "get", side_effect=requests.Timeout) as request:
             self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_CONFIG)
-            request.assert_not_called()
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(request.call_args.args[0], "https://geocoding-api.open-meteo.com/v1/search")
+            self.assertNotIn("headers", request.call_args.kwargs)
 
-    def test_missing_key_degrades_without_request(self) -> None:
+    def test_missing_key_uses_keyless_fallback(self) -> None:
         with patch.dict(
             os.environ,
             {"QWEATHER_API_HOST": "https://abc123.qweatherapi.com"},
             clear=True,
-        ), patch.object(weather.requests, "get") as request:
+        ), patch.object(weather.requests, "get", side_effect=requests.Timeout) as request:
             self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_CONFIG)
-            request.assert_not_called()
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(request.call_args.args[0], "https://geocoding-api.open-meteo.com/v1/search")
 
     def test_malformed_json_shapes_degrade(self) -> None:
         env = {
@@ -697,11 +724,13 @@ class QWeatherTests(unittest.TestCase):
                     "QWEATHER_API_HOST": host,
                 },
                 clear=True,
-            ), patch.object(weather.requests, "get") as request:
+            ), patch.object(weather.requests, "get", side_effect=requests.Timeout) as request:
                 self.assertEqual(
                     weather.brief_weather("Shanghai"), weather.UNAVAILABLE_CONFIG
                 )
-                request.assert_not_called()
+                self.assertEqual(request.call_count, 1)
+                self.assertEqual(request.call_args.args[0], "https://geocoding-api.open-meteo.com/v1/search")
+                self.assertNotIn("headers", request.call_args.kwargs)
 
     def test_template_contains_qweather_attribution(self) -> None:
         data = wechat.build_template_data(
@@ -711,6 +740,88 @@ class QWeatherTests(unittest.TestCase):
             data["weather_source"]["value"],
             "QWeather https://www.qweather.com",
         )
+
+
+class OpenMeteoTests(unittest.TestCase):
+    def test_keyless_forecast_for_shanghai_is_short_english_weather(self) -> None:
+        geo = Mock(status_code=200)
+        geo.json.return_value = {
+            "results": [{"country_code": "CN", "latitude": 31.22222, "longitude": 121.45806}]
+        }
+        forecast = Mock(status_code=200)
+        forecast.json.return_value = {
+            "current": {"temperature_2m": 23.3, "weather_code": 2}
+        }
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            weather.requests, "get", side_effect=[geo, forecast]
+        ) as request:
+            report = weather.brief_weather("Shanghai")
+            self.assertEqual(report, "Ptly cloudy 23°C")
+            self.assertLessEqual(len(report), 16)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(
+                request.call_args_list[0].args[0],
+                "https://geocoding-api.open-meteo.com/v1/search",
+            )
+            self.assertEqual(request.call_args_list[0].kwargs["params"]["countryCode"], "CN")
+            self.assertEqual(
+                request.call_args_list[1].args[0], "https://api.open-meteo.com/v1/forecast"
+            )
+            self.assertTrue(all(call.kwargs["allow_redirects"] is False for call in request.call_args_list))
+            self.assertTrue(all("headers" not in call.kwargs for call in request.call_args_list))
+
+    def test_keyless_redirect_is_rejected(self) -> None:
+        geo = Mock(status_code=302)
+        geo.json.return_value = {
+            "results": [{"country_code": "CN", "latitude": 31.22222, "longitude": 121.45806}]
+        }
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            weather.requests, "get", return_value=geo
+        ) as request:
+            self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_CONFIG)
+            self.assertEqual(request.call_count, 1)
+            self.assertIs(request.call_args.kwargs["allow_redirects"], False)
+
+    def test_extreme_coordinates_degrade_without_crashing(self) -> None:
+        geo = Mock(status_code=200)
+        geo.json.return_value = {
+            "results": [{"country_code": "CN", "latitude": 10**1000, "longitude": 121.4}]
+        }
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            weather.requests, "get", return_value=geo
+        ) as request:
+            self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_CONFIG)
+            self.assertEqual(request.call_count, 1)
+
+    def test_extreme_temperature_degrades_without_crashing(self) -> None:
+        geo = Mock(status_code=200)
+        geo.json.return_value = {
+            "results": [{"country_code": "CN", "latitude": 31.2, "longitude": 121.4}]
+        }
+        forecast = Mock(status_code=200)
+        forecast.json.return_value = {
+            "current": {"temperature_2m": 10**1000, "weather_code": 0}
+        }
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            weather.requests, "get", side_effect=[geo, forecast]
+        ):
+            self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_CONFIG)
+
+    def test_freezing_and_hail_codes_keep_important_weather_meaning(self) -> None:
+        cases = ((56, "Icy driz 23°C"), (66, "Icy rain 23°C"), (96, "Hail storm 23°C"))
+        for code, expected in cases:
+            geo = Mock(status_code=200)
+            geo.json.return_value = {
+                "results": [{"country_code": "CN", "latitude": 31.2, "longitude": 121.4}]
+            }
+            forecast = Mock(status_code=200)
+            forecast.json.return_value = {
+                "current": {"temperature_2m": 23, "weather_code": code}
+            }
+            with self.subTest(code=code), patch.dict(os.environ, {}, clear=True), patch.object(
+                weather.requests, "get", side_effect=[geo, forecast]
+            ):
+                self.assertEqual(weather.brief_weather("Shanghai"), expected)
 
 
 class DocumentationTests(unittest.TestCase):

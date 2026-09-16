@@ -8,7 +8,7 @@ import sys
 
 from dates import local_now_str, local_today, love_days, meet_status
 from gemini_line import generate_love_line
-from weather import brief_weather
+from weather import brief_weather, weather_source
 from wechat import build_template_data, send_template
 
 
@@ -114,7 +114,7 @@ def build_payload_fields() -> dict[str, str]:
         "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
         "meet_days": meet_status(next_meet, today=today),
         "love_line": love_line,
-        "weather_source": "QWeather https://www.qweather.com",
+        "weather_source": weather_source(),
     }
     if any(not value.replace("°", "").isascii() for value in fields.values()):
         raise ConfigError("Message contains non-English characters")

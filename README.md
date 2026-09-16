@@ -20,7 +20,7 @@
 
 旧 `DRY_RUN` 已不参与发送决策；它缺失或为 `0` 都不能触发真实发送。
 
-本地离线预览不需要任何 API 凭据：
+本地预览不需要任何 API 凭据；未配置 QWeather 时会联网读取 Open-Meteo 的公开天气，网络失败则显示英文降级文案：
 
 ```bash
 PUSH_SLOT=cn \
@@ -67,14 +67,14 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 | Name | 类型 | 说明 |
 |------|------|------|
-| `QWEATHER_KEY` | Actions Secret | QWeather Key；必须与账号专属 Host 成对配置 |
-| `QWEATHER_API_HOST` | Actions Secret | QWeather 控制台给出的 `*.qweatherapi.com` 账号专属 API Host；无默认公共 Host |
+| `QWEATHER_KEY` | Actions Secret | 可选的 QWeather Key；必须与账号专属 Host 成对配置 |
+| `QWEATHER_API_HOST` | Actions Secret | 可选的 QWeather 控制台 `*.qweatherapi.com` 账号专属 API Host |
 | `GEMINI_API_KEY` | Actions Secret | 可选，生成英文情话；失败或返回非 ASCII / 超长内容时使用内置英文短句 |
 | `GEMINI_MODEL` | Actions Variable | 可选模型 |
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
 
-QWeather Key 与 Host 任一缺失时，天气会安全降级为不含配置值的状态文案；API 失败也不会中断整条消息。Key 通过 `X-QW-Api-Key` 请求头发送，不放在 query 中。
+QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
 Gemini 提示词为英文，返回非 ASCII、超长或无效文本时使用内置英文短句；未配置 Key 时直接轮换内置短句。提示词不能百分之百保证语言，例如非英语但仅含 ASCII 字符的短句仍可能通过字符校验。
 
@@ -91,7 +91,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。`weather_source` 用于显示 QWeather 名称与官网链接：
+测试号模板字段必须与下面一致，固定标签请用英文。`weather_source` 会标明本次选择的天气服务和官网链接：
 
 ```text
 {{greeting.DATA}}
@@ -112,7 +112,7 @@ B: Shanghai 08:00 Cloudy 22°C
 Together: 100 days
 Next meeting: in 30 days
 Thinking of you
-Weather: QWeather https://www.qweather.com
+Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted
 ```
 
 见面日期有三种英文文案：未来显示 “in N days”，当天显示 “today”，过去显示 “date passed”。CN 槽位按 `CITY_B_TZ` 计算日期，US 槽位按 `CITY_A_TZ` 计算日期。模板更新后需将**新模板的 ID** 保存为 `WECHAT_TEMPLATE_ID`，否则程序仍引用旧模板。
@@ -130,7 +130,7 @@ GitHub Actions schedule 使用 IANA 时区，并避开整点：
 
 ```text
 src/main.py          # fail-closed 模式、数据组装、发送入口
-src/weather.py       # QWeather geo + weather/now
+src/weather.py       # QWeather 或无密钥 Open-Meteo 双城天气
 src/dates.py         # 相爱天数、见面三态、当地日期时间
 src/gemini_line.py   # Gemini 英文情话 + 英文静态回退
 src/wechat.py        # 脱敏的 token 与 template/send 调用
