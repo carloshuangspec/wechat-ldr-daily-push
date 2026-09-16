@@ -69,7 +69,7 @@ def generate_love_line(timeout: float = 15.0) -> str:
         if not candidates:
             return _fallback()
         candidate = candidates[0]
-        if candidate.get("finishReason") == "MAX_TOKENS":
+        if candidate.get("finishReason") != "STOP":
             return _fallback()
         parts = (candidate.get("content") or {}).get("parts") or []
         if not parts:

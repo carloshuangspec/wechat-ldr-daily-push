@@ -694,7 +694,12 @@ class LoveLineTests(unittest.TestCase):
         response.status_code = 200
         response.raise_for_status.return_value = None
         response.json.return_value = {
-            "candidates": [{"content": {"parts": [{"text": "You are my home"}]}}]
+            "candidates": [
+                {
+                    "finishReason": "STOP",
+                    "content": {"parts": [{"text": "You are my home"}]},
+                }
+            ]
         }
         return response
 
@@ -793,6 +798,21 @@ class LoveLineTests(unittest.TestCase):
         ):
             self.assertEqual(gemini_line.generate_love_line(), "You are my home")
 
+    def test_gemini_abnormal_or_missing_finish_reason_uses_fallback(self) -> None:
+        for finish_reason in ("SAFETY", "RECITATION", "SPII", "OTHER", None):
+            response = self.successful_response()
+            candidate = response.json.return_value["candidates"][0]
+            if finish_reason is None:
+                del candidate["finishReason"]
+            else:
+                candidate["finishReason"] = finish_reason
+            with (
+                self.subTest(finish_reason=finish_reason),
+                patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+                patch.object(requests, "post", return_value=response),
+            ):
+                self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+
     def test_gemini_redirect_with_candidate_uses_fallback(self) -> None:
         response = self.successful_response()
         response.status_code = 302
@@ -808,7 +828,9 @@ class LoveLineTests(unittest.TestCase):
         response.raise_for_status.return_value = None
         for generated in ("早安，想你了", "Missing you across all the miles between us"):
             response.json.return_value = {
-                "candidates": [{"content": {"parts": [{"text": generated}]}}]
+                "candidates": [
+                    {"finishReason": "STOP", "content": {"parts": [{"text": generated}]}}
+                ]
             }
             with (
                 self.subTest(generated=generated),
@@ -824,8 +846,12 @@ class LoveLineTests(unittest.TestCase):
         bodies = (
             [],
             {"candidates": "not-a-list"},
-            {"candidates": [{"content": {"parts": [123]}}]},
-            {"candidates": [{"content": {"parts": [{"text": 123}]}}]},
+            {"candidates": [{"finishReason": "STOP", "content": {"parts": [123]}}]},
+            {
+                "candidates": [
+                    {"finishReason": "STOP", "content": {"parts": [{"text": 123}]}}
+                ]
+            },
         )
         for body in bodies:
             response.json.return_value = body
