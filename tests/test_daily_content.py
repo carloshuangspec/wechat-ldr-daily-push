@@ -85,7 +85,7 @@ class ParseConfigTests(unittest.TestCase):
         )
 
     def test_rejects_invalid_themes(self) -> None:
-        for theme in ("", "x" * 121, "Line\nnext", "Line\rnext", "a\u2028b", "a\x00b", "a\x7fb"):
+        for theme in ("", "   ", "\u3000", "x" * 121, "Line\nnext", "Line\rnext", "a\u2028b", "a\x00b", "a\x7fb"):
             with self.subTest(theme=repr(theme)), self.assertRaises(DailyContentError):
                 parse_config(json.dumps({"date": "2026-09-16", "theme": theme}))
 
@@ -99,6 +99,7 @@ class ParseConfigTests(unittest.TestCase):
     def test_rejects_invalid_exact_lines_without_normalizing_them(self) -> None:
         for exact in (
             "",
+            "   ",
             "A" * 21,
             "Hi\nthere",
             "Hi\rthere",

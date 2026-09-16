@@ -35,6 +35,7 @@ def validate_inputs(day: str, theme: str | None, exact: str | None) -> dict[str,
         if (
             not isinstance(theme, str)
             or not 1 <= len(theme) <= 120
+            or not theme.strip()
             or any(
                 unicodedata.category(char).startswith("C")
                 or unicodedata.category(char) in {"Zl", "Zp"}
@@ -48,6 +49,7 @@ def validate_inputs(day: str, theme: str | None, exact: str | None) -> dict[str,
         if (
             not isinstance(exact, str)
             or not 1 <= len(exact) <= 20
+            or not exact.strip()
             or any(not 32 <= ord(char) <= 126 for char in exact)
         ):
             raise DailyContentError()
@@ -78,7 +80,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-def parse_config(raw: str) -> dict[str, str] | None:
+def parse_config(raw: str | None) -> dict[str, str] | None:
     """Parse strict JSON config; missing/blank config means no manual content."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None
