@@ -34,6 +34,23 @@ LIVE_GITHUB_ENV = {
     "GITHUB_RUN_ATTEMPT": "1",
 }
 
+SCHEDULED_CN_ENV = {
+    "SEND_MODE": "live",
+    "PUSH_SLOT": "cn",
+    "LIVE_RECIPIENT": "cn",
+    "GITHUB_ACTIONS": "true",
+    "GITHUB_EVENT_NAME": "schedule",
+    "GITHUB_EVENT_SCHEDULE": "7 8 * * *",
+    "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
+    "GITHUB_REF": "refs/heads/main",
+    "GITHUB_RUN_ATTEMPT": "1",
+    "ENABLE_CN_DAILY": "1",
+    "WECHAT_APP_ID": "TEST_APP_ID",
+    "WECHAT_APP_SECRET": "TEST_SECRET_DO_NOT_LOG",
+    "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE_DO_NOT_LOG",
+    "WECHAT_OPENID_CN": "TEST_CN_OPENID_DO_NOT_LOG",
+}
+
 
 class SendModeTests(unittest.TestCase):
     def test_default_is_dry_run_even_when_legacy_dry_run_is_zero(self) -> None:
@@ -127,6 +144,90 @@ class SendModeTests(unittest.TestCase):
         ):
             with self.assertRaises(main.ConfigError):
                 main.validate_send_context("live", "cn")
+
+    def test_scheduled_cn_live_sends_without_manual_confirmation(self) -> None:
+        stdout = StringIO()
+        with (
+            patch.dict(os.environ, SCHEDULED_CN_ENV, clear=True),
+            patch.object(main, "build_payload_fields", return_value={}) as build,
+            patch.object(
+                main, "send_template", return_value={"errcode": 0, "msgid": "123"}
+            ) as send,
+            redirect_stdout(stdout),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main.main(), 0)
+            build.assert_called_once_with()
+            self.assertEqual(
+                send.call_args.kwargs["openid"], SCHEDULED_CN_ENV["WECHAT_OPENID_CN"]
+            )
+            self.assertNotIn(SCHEDULED_CN_ENV["WECHAT_OPENID_CN"], stdout.getvalue())
+
+    def test_scheduled_cn_rejects_missing_or_inexact_flag_before_weather(self) -> None:
+        for flag in (None, "", "0", "true", " 1 ", "2"):
+            with self.subTest(flag=flag):
+                env = {**SCHEDULED_CN_ENV, "LIVE_CONFIRMATION": "SEND_CN_ONCE"}
+                if flag is None:
+                    del env["ENABLE_CN_DAILY"]
+                else:
+                    env["ENABLE_CN_DAILY"] = flag
+                with (
+                    patch.dict(os.environ, env, clear=True),
+                    patch.object(main, "brief_weather") as weather_call,
+                    patch.object(main, "build_payload_fields") as build,
+                    patch.object(main, "send_template") as send,
+                    redirect_stderr(StringIO()),
+                ):
+                    self.assertEqual(main.main(), 2)
+                    weather_call.assert_not_called()
+                    build.assert_not_called()
+                    send.assert_not_called()
+
+    def test_scheduled_cn_rejects_wrong_context_before_weather_or_send(self) -> None:
+        invalid = {
+            "wrong event": ("GITHUB_EVENT_NAME", "workflow_dispatch"),
+            "missing cron": ("GITHUB_EVENT_SCHEDULE", ""),
+            "US cron": ("GITHUB_EVENT_SCHEDULE", "13 8 * * *"),
+            "different cron": ("GITHUB_EVENT_SCHEDULE", "8 8 * * *"),
+            "wrong role": ("LIVE_RECIPIENT", "self"),
+            "wrong slot": ("PUSH_SLOT", "us"),
+            "padded slot": ("PUSH_SLOT", " cn"),
+            "not Actions": ("GITHUB_ACTIONS", "false"),
+            "non-exact Actions": ("GITHUB_ACTIONS", "TRUE"),
+            "padded Actions": ("GITHUB_ACTIONS", "true "),
+            "wrong repository": ("GITHUB_REPOSITORY", "someone/fork"),
+            "wrong ref": ("GITHUB_REF", "refs/heads/feature"),
+            "rerun": ("GITHUB_RUN_ATTEMPT", "2"),
+        }
+        for case, (name, value) in invalid.items():
+            with (
+                self.subTest(case=case),
+                patch.dict(os.environ, {**SCHEDULED_CN_ENV, name: value}, clear=True),
+                patch.object(main, "brief_weather") as weather_call,
+                patch.object(main, "build_payload_fields") as build,
+                patch.object(main, "send_template") as send,
+                redirect_stderr(StringIO()),
+            ):
+                self.assertEqual(main.main(), 2)
+                weather_call.assert_not_called()
+                build.assert_not_called()
+                send.assert_not_called()
+
+    def test_manual_cn_confirmation_is_not_replaced_by_daily_flag(self) -> None:
+        env = {
+            **SCHEDULED_CN_ENV,
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "LIVE_CONFIRMATION": "",
+        }
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(main, "build_payload_fields") as build,
+            patch.object(main, "send_template") as send,
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main.main(), 2)
+            build.assert_not_called()
+            send.assert_not_called()
 
     def test_each_live_gate_field_stops_main_before_payload_or_send(self) -> None:
         valid_env = {
@@ -1129,6 +1230,18 @@ class DocumentationTests(unittest.TestCase):
             ),
         )
 
+    def test_daily_cn_documentation_keeps_flag_off_until_phone_receipts(self) -> None:
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("`ENABLE_CN_DAILY`", readme)
+        self.assertIn("`1`", readme)
+        self.assertIn("两部手机", readme)
+        self.assertIn("本人手机已确认收到", readme)
+        self.assertIn("女友手机尚未确认", readme)
+        self.assertIn("约 08:07", readme)
+        self.assertIn("关闭", readme)
+
 
 class WorkflowPolicyTests(unittest.TestCase):
     @classmethod
@@ -1161,8 +1274,8 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
         self.assertIn('REQUEST_REF: ${{ github.ref }}', self.workflow)
         self.assertIn('REQUEST_ATTEMPT: ${{ github.run_attempt }}', self.workflow)
-        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 2)
-        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 2)
+        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 3)
+        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 3)
 
     def test_preview_jobs_have_no_wechat_credentials(self) -> None:
         self.assertIn("  live-self:", self.workflow)
@@ -1182,15 +1295,17 @@ class WorkflowPolicyTests(unittest.TestCase):
             self.assertNotIn("SEND_MODE: ${{", job)
 
     def test_optional_gemini_is_available_in_each_message_job(self) -> None:
-        self.assertEqual(self.workflow.count("GEMINI_API_KEY:"), 4)
-        self.assertEqual(self.workflow.count("GEMINI_MODEL:"), 4)
+        self.assertEqual(self.workflow.count("GEMINI_API_KEY:"), 5)
+        self.assertEqual(self.workflow.count("GEMINI_MODEL:"), 5)
 
     def test_manual_live_jobs_are_isolated_by_recipient_and_event(self) -> None:
         self.assertIn("  live-self:", self.workflow)
         self_job = self.workflow.split("  live-self:", 1)[1].split(
             "  live-cn:", 1
         )[0]
-        cn_job = self.workflow.split("  live-cn:", 1)[1]
+        cn_job = self.workflow.split("  live-cn:", 1)[1].split(
+            "  scheduled-cn:", 1
+        )[0]
         for mode, slot, confirmation, recipient, job in (
             ("live-self", "us", "SEND_SELF_ONCE", "self", self_job),
             ("live-cn", "cn", "SEND_CN_ONCE", "cn", cn_job),
@@ -1223,22 +1338,54 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertNotIn("WECHAT_OPENID_CN:", self_job)
         self.assertIn("WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}", cn_job)
         self.assertNotIn("WECHAT_OPENID_SELF:", cn_job)
-        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 2)
+        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 3)
         self.assertEqual(self.workflow.count("WECHAT_OPENID_SELF:"), 1)
-        self.assertEqual(self.workflow.count("WECHAT_OPENID_CN:"), 1)
+        self.assertEqual(self.workflow.count("WECHAT_OPENID_CN:"), 2)
         self.assertNotIn("WECHAT_OPENID_US:", self.workflow)
-        self.assertEqual(self.workflow.count("SEND_MODE: live"), 2)
+        self.assertEqual(self.workflow.count("SEND_MODE: live"), 3)
         self.assertNotIn("DRY_RUN:", self.workflow)
         self.assertNotIn("vars.DRY_RUN", self.workflow)
 
+    def test_scheduled_cn_job_is_exact_and_uses_only_cn_credentials(self) -> None:
+        self.assertIn("  scheduled-cn:", self.workflow)
+        job = self.workflow.split("  scheduled-cn:", 1)[1]
+        for fragment in (
+            "needs: validate-dispatch",
+            "needs.validate-dispatch.result == 'success'",
+            "github.event_name == 'schedule'",
+            "github.event.schedule == '7 8 * * *'",
+            "vars.ENABLE_CN_DAILY == '1'",
+            "github.repository == 'carloshuangspec/wechat-ldr-daily-push'",
+            "github.ref == 'refs/heads/main'",
+            "github.run_attempt == '1'",
+            "PUSH_SLOT: cn",
+            "SEND_MODE: live",
+            "LIVE_RECIPIENT: cn",
+            "GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}",
+            "ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}",
+            "WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}",
+            "WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}",
+            "WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}",
+            "WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}",
+            "actions/checkout@v7",
+            "actions/setup-python@v7",
+            "python -m unittest discover -s tests -v",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, job)
+        self.assertNotIn("WECHAT_OPENID_SELF:", job)
+        self.assertNotIn("LIVE_CONFIRMATION:", job)
+        self.assertNotIn("SEND_CN_ONCE", job)
+        self.assertNotIn("inputs.mode", job)
+
     def test_known_start_date_reaches_every_message_job(self) -> None:
         self.assertEqual(
-            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 4
+            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 5
         )
 
     def test_workflow_uses_current_node24_actions_and_fixed_concurrency(self) -> None:
-        self.assertEqual(self.workflow.count("actions/checkout@v7"), 4)
-        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 4)
+        self.assertEqual(self.workflow.count("actions/checkout@v7"), 5)
+        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 5)
         self.assertIn("group: wechat-ldr-daily-push-stage-c", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
 

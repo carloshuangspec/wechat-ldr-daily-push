@@ -1,4 +1,4 @@
-# 阶段 C：定时任务只预览；受控 workflow_dispatch 可分别向自己和 CN 测试。
+# 阶段 C：CN 定时真发默认关闭；手动测试与预览保持独立。
 name: daily-push
 
 "on":
@@ -301,6 +301,59 @@ jobs:
           SEND_MODE: live
           LIVE_RECIPIENT: cn
           LIVE_CONFIRMATION: ${{ inputs.confirmation }}
+          CITY_A: ${{ vars.CITY_A }}
+          CITY_B: ${{ vars.CITY_B }}
+          CITY_A_TZ: ${{ vars.CITY_A_TZ }}
+          CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
+          LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
+          NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
+          QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
+          QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+          WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
+          WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}
+        run: |
+          export CITY_A="${CITY_A:-Ann Arbor}"
+          export CITY_B="${CITY_B:-Shanghai}"
+          export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
+          export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
+          python src/main.py
+
+  scheduled-cn:
+    name: LIVE CN schedule (disabled unless explicitly enabled)
+    needs: validate-dispatch
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      github.event_name == 'schedule' &&
+      github.event.schedule == '7 8 * * *' &&
+      vars.ENABLE_CN_DAILY == '1' &&
+      github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests without live credentials
+        run: python -m unittest discover -s tests -v
+      - name: Send scheduled CN
+        env:
+          PUSH_SLOT: cn
+          SEND_MODE: live
+          LIVE_RECIPIENT: cn
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}
           CITY_A: ${{ vars.CITY_A }}
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}

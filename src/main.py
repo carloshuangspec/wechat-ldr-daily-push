@@ -30,7 +30,7 @@ def resolve_send_mode() -> str:
 
 
 def validate_send_context(mode: str, slot: str) -> None:
-    """手动真发只允许收件角色、时段和确认短语精确匹配。"""
+    """真发仅允许独立的手动确认或明确启用的 CN 定时上下文。"""
     if slot not in {"cn", "us"}:
         raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
     if mode != "live":
@@ -45,12 +45,26 @@ def validate_send_context(mode: str, slot: str) -> None:
     expected_slot, expected_confirmation = allowed[recipient]
     if slot != expected_slot:
         raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
+    # 防误操作门禁：定时 CN 与受控手动发送的条件彼此独立。
+    if os.getenv("GITHUB_ACTIONS") != "true":
+        raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
+    if os.getenv("GITHUB_EVENT_NAME") == "schedule":
+        expected_schedule = {
+            "GITHUB_EVENT_SCHEDULE": "7 8 * * *",
+            "ENABLE_CN_DAILY": "1",
+            "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_RUN_ATTEMPT": "1",
+        }
+        if recipient != "cn" or any(
+            os.getenv(name) != value for name, value in expected_schedule.items()
+        ):
+            raise ConfigError("CN 定时真发上下文不符合门禁")
+        return
+
     if os.getenv("LIVE_CONFIRMATION") != expected_confirmation:
         raise ConfigError("live 缺少精确确认短语")
 
-    # 防误操作门禁：阶段 C 只接受与受控 workflow_dispatch 匹配的上下文。
-    if _env("GITHUB_ACTIONS").lower() != "true":
-        raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
     expected = {
         "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",

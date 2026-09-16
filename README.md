@@ -2,18 +2,20 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：准备两次彼此独立的受控手动测试，先发送给 Carlos 本人（US 槽位），再发送给女友（CN 槽位）。默认手动任务和所有定时任务仍只预览；两部手机均确认收到并检查内容后，才另行决定是否开启 CN 每日发送。US 自测不会开启给 Carlos 的每日推送。
+当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认收到，女友手机尚未确认。手动任务默认预览；定时 CN 真发代码仅处于准备态，须在两部手机的收件与内容均核对后另行开启。US 自测不会开启给 Carlos 的每日推送。
 
 ## 安全运行模式
 
 应用层 `SEND_MODE` 只接受两个值：
 
 - `dry-run`：只打印脱敏预览，不发送；缺失时也是此模式。
-- `live`：必须精确匹配 `LIVE_RECIPIENT=self`、`PUSH_SLOT=us`、
+- `live`：手动真发必须精确匹配 `LIVE_RECIPIENT=self`、`PUSH_SLOT=us`、
   `LIVE_CONFIRMATION=SEND_SELF_ONCE`，或 `LIVE_RECIPIENT=cn`、`PUSH_SLOT=cn`、
-  `LIVE_CONFIRMATION=SEND_CN_ONCE`；还要求受控 GitHub Actions
-  `workflow_dispatch` 上下文。普通本机运行、交叉槽位、缺确认或未知值都会在
-  任何外部请求前安全停止。
+  `LIVE_CONFIRMATION=SEND_CN_ONCE`，并满足受控 GitHub Actions
+  `workflow_dispatch` 上下文。独立的 CN 定时真发只接受 `schedule` 事件、
+  `GITHUB_EVENT_SCHEDULE=7 8 * * *`、`LIVE_RECIPIENT=cn`、`PUSH_SLOT=cn` 和
+  `ENABLE_CN_DAILY=1`；它不读取手动确认短语。两种路径均须匹配 GitHub Actions、
+  本仓库 `main` 和首次 run，其他情况在任何天气或发送请求前停止。
 
 这层 `GITHUB_*` 检查用于防误操作，不是不可伪造的远程身份证明；环境变量在
 本机仍可人为伪造。因此真实微信凭据只应保存在 GitHub Secrets，不要写入本机
@@ -44,9 +46,9 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 - 女友测试：选择 `mode=live-cn`、`slot=cn`，并在 confirmation 精确输入 `SEND_CN_ONCE`。该 job 只能使用 `WECHAT_OPENID_CN`，不能读取本人的 OpenID。
 - 两条真发路径都限制为本仓库 `main` 分支、仓库所有者首次执行的手动 run；对该 run 点 Re-run 会被拒绝。槽位、短语、仓库、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行；定时事件也不能进入它们。
 
-阶段 C 将预览与真发拆成独立 job：两个预览 job 和所有 schedule 仍使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。仅 `live-self` 和 `live-cn` 各自的发送步骤会把已验证的手动选择映射为 `SEND_MODE=live`，分别只加载所需的一个收件人 OpenID 与共用的三个微信 Secrets。工作流会在加载这些 Secrets 前先安装依赖并运行单元测试。
+阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` 即使启用定时 CN 也始终使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。手动 `live-self` / `live-cn` 只加载各自的收件人 OpenID；另有默认关闭的 `scheduled-cn`，仅在精确的 CN cron 和 `ENABLE_CN_DAILY=1` 时进入。三个真发 job 都只在各自的发送步骤加载对应 OpenID 与共用的三个微信 Secrets，并先运行单元测试。
 
-`SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。先看自测的脱敏 API 结果，若成功再做一次 CN 测试；任何一步失败都先排查，不能自动重发。API 接受和绿色 job 均不等于手机收到；请在两部手机核对消息、换行和天气来源，然后才决定下一阶段。
+`SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认，但仍需 CN 收件人确认收到，并核对消息、换行和天气来源，然后才决定是否开启定时 CN。若发现问题先排查，不自动重发。
 
 ## 配置：必填与可选
 
@@ -65,7 +67,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `WECHAT_APP_SECRET` | Actions Secret | 微信测试号 appsecret |
 | `WECHAT_TEMPLATE_ID` | Actions Secret | 模板 ID |
 | `WECHAT_OPENID_SELF` | Actions Secret | Carlos 本人的 US 槽位 openid，仅 `live-self` 读取 |
-| `WECHAT_OPENID_CN` | Actions Secret | 女友的 CN 槽位 openid，仅 `live-cn` 读取 |
+| `WECHAT_OPENID_CN` | Actions Secret | 女友的 CN 槽位 openid，仅 `live-cn` / `scheduled-cn` 读取 |
 
 可选增强：
 
@@ -78,6 +80,8 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `KNOWN_START_DATE` | Actions Variable | 可选约数起点，默认 `2019-09-02`，不是已核实的相识日 |
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
+
+CN 每日发送的单独开关 `ENABLE_CN_DAILY` 是 Actions Variable，**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。只有两部手机都确认实际收件、内容无误后，才由 Carlos 明确决定是否在仓库 `Settings → Secrets and variables → Actions → Variables` 中设为 `1`；准备代码和提交本身不应设置它。要关闭 CN 日推，立即在同一位置删除该变量或改成 `0`；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。不要用手动的 `SEND_CN_ONCE` 代替这个开关。
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
@@ -129,8 +133,11 @@ GitHub Actions schedule 使用 IANA 时区，并避开整点：
 
 | 目标当地时间 | Cron + timezone | Job | 阶段 C 行为 |
 |--------------|-----------------|-----|-------------|
-| 中国约 08:07 | `7 8 * * *` + `Asia/Shanghai` | `preview-cn` | dry-run |
-| Detroit 约 08:13 | `13 8 * * *` + `America/Detroit` | `preview-us` | dry-run |
+| 中国约 08:07 | `7 8 * * *` + `Asia/Shanghai` | `preview-cn` | 始终 dry-run |
+| 中国约 08:07 | `7 8 * * *` + `Asia/Shanghai` | `scheduled-cn` | 默认跳过；仅开关为 `1` 且通过事件、仓库、分支与首次运行门禁才真发 CN |
+| Detroit 约 08:13 | `13 8 * * *` + `America/Detroit` | `preview-us` | 始终 dry-run，不提供定时 US 真发 |
+
+约 08:07 是配置的上海当地时间，实际 GitHub Actions 启动时间可能延迟；美国时段的 cron 不能触发 CN 真发。
 
 ## 项目结构与测试
 
