@@ -92,7 +92,36 @@ if candidates[0].get("finishReason") == "MAX_TOKENS":
 
 - [ ] **Step 4: Verify and commit.** Run `.venv/bin/python -m unittest discover -s tests -v`, then `git add src/gemini_line.py tests/test_stage_c.py` and `git commit -m "Avoid truncated Gemini love lines"` only after the suite passes.
 
-### Task 3: Distinguish real generation from fallback without leaking data
+### Task 3: Accept only normally finished Gemini text
+
+**Files:**
+- Modify: `tests/test_stage_c.py:690-810`
+- Modify: `src/gemini_line.py:68-82`
+
+- [ ] **Step 1: Add failing finish-reason tests.** Make every mocked successfully generated candidate explicitly include `finishReason: "STOP"`. Add a parameterized test where a 200 response carries a valid short English text with each of `SAFETY`, `RECITATION`, `SPII`, `OTHER`, and no `finishReason`; assert fallback for all. Keep the existing `MAX_TOKENS` and `STOP` tests.
+
+```python
+for reason in ("SAFETY", "RECITATION", "SPII", "OTHER", None):
+    response = self.successful_response()
+    if reason is not None:
+        response.json.return_value["candidates"][0]["finishReason"] = reason
+    with self.subTest(reason=reason), patch.dict(
+        os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True
+    ), patch.object(requests, "post", return_value=response):
+        self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+```
+
+- [ ] **Step 2: Watch failure.** Run `.venv/bin/python -m unittest tests.test_stage_c.LoveLineTests -v`; expected: the abnormal/missing finish-reason cases return the generated line, failing the new test.
+- [ ] **Step 3: Make the smallest guard change.** Replace the first-candidate check with:
+
+```python
+if candidate.get("finishReason") != "STOP":
+    return _fallback()
+```
+
+- [ ] **Step 4: Verify and commit.** Run `.venv/bin/python -m unittest discover -s tests -v`; expected: all tests pass. Commit only `src/gemini_line.py` and `tests/test_stage_c.py` as `Reject abnormally finished Gemini text`.
+
+### Task 4: Distinguish real generation from fallback without leaking data
 
 **Files:**
 - Modify: `tests/test_stage_c.py:690-748`
@@ -117,7 +146,7 @@ print("gemini_source=generated", file=sys.stderr)  # Before valid generated retu
 - [ ] **Step 4: Verify all tests.** Run `.venv/bin/python -m unittest discover -s tests -v`; expected: all tests pass, including send gates.
 - [ ] **Step 5: Commit only generator/test changes.** Run `git add src/gemini_line.py tests/test_stage_c.py` and `git commit -m "Report safe Gemini generation provenance"`.
 
-### Task 4: Configuration docs and preview boundary
+### Task 5: Configuration docs and preview boundary
 
 **Files:**
 - Modify: `config.example.env:18-22`

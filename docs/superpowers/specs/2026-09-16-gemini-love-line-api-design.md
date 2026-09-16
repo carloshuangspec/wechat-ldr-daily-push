@@ -18,7 +18,7 @@ Generate a brief English romantic line for the existing WeChat template while ke
 
 ## Data flow and failure handling
 
-The five existing GitHub Actions message jobs already pass `GEMINI_API_KEY` and `GEMINI_MODEL` to the application. The Gemini module asks for an English line of at most 20 printable ASCII characters; accepted output becomes the existing `love_line` field. For Gemini 3.8 Flash, use `thinkingLevel=low`, allow a bounded 512 output tokens (including hidden reasoning), and remove the obsolete sampling temperature; do not accept a `MAX_TOKENS` truncated candidate. Missing key, HTTP failure, malformed or truncated output, non-ASCII output, or overlong output falls back to one of the existing English lines. A non-secret diagnostic records whether a valid generated line was used, without logging the key, raw error body, or private identifiers.
+The five existing GitHub Actions message jobs already pass `GEMINI_API_KEY` and `GEMINI_MODEL` to the application. The Gemini module asks for an English line of at most 20 printable ASCII characters; accepted output becomes the existing `love_line` field. For Gemini 3.8 Flash, use `thinkingLevel=low`, allow a bounded 512 output tokens (including hidden reasoning), and remove the obsolete sampling temperature; only accept candidates with the normal `STOP` finish reason. Missing key, HTTP failure, malformed or abnormally terminated output, non-ASCII output, or overlong output falls back to one of the existing English lines. A non-secret diagnostic records whether a valid generated line was used, without logging the key, raw error body, or private identifiers.
 
 ## Verification
 
