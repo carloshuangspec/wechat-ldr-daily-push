@@ -90,7 +90,7 @@ CN 每日发送的单独开关 `ENABLE_CN_DAILY` 是 Actions Variable，**不存
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
-每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 20 个可打印 ASCII 字符的英文短句，正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。返回不完整、非英文字符、超长、引号包裹、多行或接口失败时，不发送整个推送，也不换成固定句子。ASCII 校验不能百分之百判定语义是否英语，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
+每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 20 个可打印 ASCII 字符的英文短句，正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。若仅文案不合格，会在任何微信发送前最多再生成两次；三次仍不合格或接口/鉴权失败则跳过整条，不替换固定句子，**绝不自动重试微信发送**。失败日志只记录固定类别（如 `invalid_text`），不包含响应正文。ASCII 校验不能百分之百判定语义是否英语，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
 
 想调整某个上海日期的内容，可在 Mac 上双击 `scripts/edit-daily-message.command`，填日期（默认上海今天）、可选主题 `theme`、可选手写英文原句 `exact`；至少填一项。`theme` 最多 120 字符，可写中英文，会发给 DeepSeek 引导生成；`exact` 必须为单行 1–20 个可打印 ASCII 字符，优先级高于主题且不请求 AI，原样进入消息。工具本地显示输入供确认后，仅通过标准输入将单个 JSON 对象写入 `DAILY_MESSAGE_CONFIG` Secret，不写入 Git 历史或临时文件。替换时需重新填完整内容，不能从 GitHub Secret 读回；工具可经单独确认删除此 Secret。日期不匹配的旧配置会被忽略，格式无效的配置会让运行安全失败。这个 Secret 仅加载到 CN 的预览和发送 job，SELF/US 不读取。
 

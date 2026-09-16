@@ -156,6 +156,40 @@ class DeepSeekLineTests(unittest.TestCase):
                     generate_love_line()
             self.assertEqual(stderr.getvalue(), f"line_failure={category}\n")
 
+    def test_bad_first_text_is_regenerated_before_any_send(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", side_effect=[
+                self.response(content="This is much too long for the short line"),
+                self.response(content="Miss you today"),
+            ]) as post,
+            redirect_stderr(StringIO()) as stderr,
+        ):
+            self.assertEqual(generate_love_line(), "Miss you today")
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
+
+    def test_three_bad_texts_fail_without_a_fallback(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response(content="A" * 21)) as post,
+            redirect_stderr(StringIO()) as stderr,
+        ):
+            with self.assertRaises(DeepSeekLineError):
+                generate_love_line()
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(stderr.getvalue(), "line_failure=invalid_text\n")
+
+    def test_http_error_is_not_regenerated(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response(status=402)) as post,
+            redirect_stderr(StringIO()),
+        ):
+            with self.assertRaises(DeepSeekLineError):
+                generate_love_line()
+        post.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
