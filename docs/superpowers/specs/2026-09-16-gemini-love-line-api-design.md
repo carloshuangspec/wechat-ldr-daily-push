@@ -18,10 +18,10 @@ Generate a brief English romantic line for the existing WeChat template while ke
 
 ## Data flow and failure handling
 
-The five existing GitHub Actions message jobs already pass `GEMINI_API_KEY` and `GEMINI_MODEL` to the application. The Gemini module asks for an English line of at most 20 printable ASCII characters; accepted output becomes the existing `love_line` field. Missing key, HTTP failure, malformed output, non-ASCII output, or overlong output falls back to one of the existing English lines. A non-secret diagnostic records whether a valid generated line was used, without logging the key, raw error body, or private identifiers.
+The five existing GitHub Actions message jobs already pass `GEMINI_API_KEY` and `GEMINI_MODEL` to the application. The Gemini module asks for an English line of at most 20 printable ASCII characters; accepted output becomes the existing `love_line` field. For Gemini 3.8 Flash, use `thinkingLevel=low`, allow a bounded 512 output tokens (including hidden reasoning), and remove the obsolete sampling temperature; do not accept a `MAX_TOKENS` truncated candidate. Missing key, HTTP failure, malformed or truncated output, non-ASCII output, or overlong output falls back to one of the existing English lines. A non-secret diagnostic records whether a valid generated line was used, without logging the key, raw error body, or private identifiers.
 
 ## Verification
 
-- Mocked tests check the stable default/optional override, request header and absence of URL/query key, a valid generated line, and failure fallbacks. Existing send-gate tests must remain green.
+- Mocked tests check the stable default/optional override, request header and absence of URL/query key, low-thinking generation config, a valid generated line, and failure fallbacks. Existing send-gate tests must remain green.
 - After the new Secret is saved, run only the existing GitHub Actions `preview` mode for both slots. Confirm safe diagnostics show Gemini generation rather than only `gemini_key_set: true` and inspect the English `love_line` text. The preview jobs do not load WeChat credentials or send a message.
 - A successful preview does not establish phone delivery and does not turn on `ENABLE_CN_DAILY` or any US daily live send. Any real send remains a separate, explicit decision.

@@ -58,7 +58,41 @@ if response.status_code != 200:
 - [ ] **Step 4: Verify.** Run `.venv/bin/python -m unittest tests.test_stage_c.LoveLineTests -v`; expected: request-shape and preexisting love-line tests pass.
 - [ ] **Step 5: Commit only the tested generator and test change.** Run `git add src/gemini_line.py tests/test_stage_c.py` and `git commit -m "Fix Gemini model and header authentication"`.
 
-### Task 2: Distinguish real generation from fallback without leaking data
+### Task 2: Avoid silent empty/truncated output with Gemini 3.8
+
+**Files:**
+- Modify: `tests/test_stage_c.py:690-800`
+- Modify: `src/gemini_line.py:49-75`
+
+- [ ] **Step 1: Add failing generation-config and truncation tests.** With a dummy `TEST_KEY` and a mocked valid 200 candidate, assert the `requests.post` JSON has `generationConfig.thinkingConfig.thinkingLevel == "low"`, `maxOutputTokens == 512`, and no `temperature`. Separately, make a mocked 200 response with `finishReason == "MAX_TOKENS"` and even a 20-character-or-less `text`, and assert the generator returns an existing English fallback line. A normal candidate with `finishReason == "STOP"` must still yield its valid English line.
+
+```python
+config = post.call_args.kwargs["json"]["generationConfig"]
+self.assertEqual(config["thinkingConfig"], {"thinkingLevel": "low"})
+self.assertEqual(config["maxOutputTokens"], 512)
+self.assertNotIn("temperature", config)
+response.json.return_value = {
+    "candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "You are my home"}]}}]
+}
+self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+```
+
+- [ ] **Step 2: Watch intended failures.** Run `.venv/bin/python -m unittest tests.test_stage_c.LoveLineTests -v`; expected: config assertion and truncated-candidate test fail against the existing behavior.
+- [ ] **Step 3: Implement only the config/finish guard.** Replace the old config and reject truncation before parsing the first candidate's content. Preserve all other authentication, prompt, and validation behavior.
+
+```python
+"generationConfig": {
+    "thinkingConfig": {"thinkingLevel": "low"},
+    "maxOutputTokens": 512,
+},
+# After candidates is known non-empty:
+if candidates[0].get("finishReason") == "MAX_TOKENS":
+    return _fallback()
+```
+
+- [ ] **Step 4: Verify and commit.** Run `.venv/bin/python -m unittest discover -s tests -v`, then `git add src/gemini_line.py tests/test_stage_c.py` and `git commit -m "Avoid truncated Gemini love lines"` only after the suite passes.
+
+### Task 3: Distinguish real generation from fallback without leaking data
 
 **Files:**
 - Modify: `tests/test_stage_c.py:690-748`
@@ -83,7 +117,7 @@ print("gemini_source=generated", file=sys.stderr)  # Before valid generated retu
 - [ ] **Step 4: Verify all tests.** Run `.venv/bin/python -m unittest discover -s tests -v`; expected: all tests pass, including send gates.
 - [ ] **Step 5: Commit only generator/test changes.** Run `git add src/gemini_line.py tests/test_stage_c.py` and `git commit -m "Report safe Gemini generation provenance"`.
 
-### Task 3: Configuration docs and preview boundary
+### Task 4: Configuration docs and preview boundary
 
 **Files:**
 - Modify: `config.example.env:18-22`
