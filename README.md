@@ -75,8 +75,8 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 |------|------|------|
 | `QWEATHER_KEY` | Actions Secret | 可选的 QWeather Key；必须与账号专属 Host 成对配置 |
 | `QWEATHER_API_HOST` | Actions Secret | 可选的 QWeather 控制台 `*.qweatherapi.com` 账号专属 API Host |
-| `GEMINI_API_KEY` | Actions Secret | 可选，生成英文情话；失败或返回非 ASCII / 超长内容时使用内置英文短句 |
-| `GEMINI_MODEL` | Actions Variable | 可选模型 |
+| `GEMINI_API_KEY` | Actions Secret | 可选，生成英文情话；Key 仅经 `x-goog-api-key` 请求头发送，失败或返回无效内容时使用内置英文短句 |
+| `GEMINI_MODEL` | Actions Variable | 可选覆盖；未设置时使用代码中固定默认模型 `gemini-3.8-flash` |
 | `KNOWN_START_DATE` | Actions Variable | 可选约数起点，默认 `2019-09-02`，不是已核实的相识日 |
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
@@ -85,7 +85,9 @@ CN 每日发送的单独开关 `ENABLE_CN_DAILY` 是 Actions Variable，**不存
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
-Gemini 提示词为英文，返回非 ASCII、超长或无效文本时使用内置英文短句；未配置 Key 时直接轮换内置短句。提示词不能百分之百保证语言，例如非英语但仅含 ASCII 字符的短句仍可能通过字符校验。
+Gemini 提示词为英文，返回非 ASCII、超长或无效文本时使用内置英文短句；未配置 Key 时不请求 Gemini，直接轮换内置短句。提示词不能百分之百保证语言，例如非英语但仅含 ASCII 字符的短句仍可能通过字符校验。`GEMINI_MODEL` 不必配置；只有需要显式更换模型时才设置覆盖值。真实 Key 只在仓库的 GitHub Actions Secret `GEMINI_API_KEY` 中配置，不要写入本地 `.env`、仓库、聊天或日志。如果某个 Key 已在聊天等不受控位置暴露，应在提供方撤销它，并私下创建替换 Key、更新该 Secret；不要再次分享 Key 值。
+
+先使用 `mode=preview` 检查安全预览日志：`gemini_source=generated` 表示本次生成结果通过校验，`gemini_source=fallback` 表示本次使用内置英文短句。预览中的 `gemini_key_set` 仅表示该环境变量非空，**不证明 Gemini 已成功生成**；应以 `gemini_source` 区分本次结果。预览 job 始终 `SEND_MODE=dry-run`、不加载任何 `WECHAT_*`，不会发送微信消息；测试 Gemini 不需要开启 CN 日推，`ENABLE_CN_DAILY` 应保持未设置或不等于 `1`。
 
 QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 暂不迁移 v1，后续必须在停服前安排迁移。
 
