@@ -82,7 +82,7 @@ def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
         "weather_b": 16,
         "love_days": 12,
         "meet_days": 12,
-        "love_line": 20,
+        "love_line": 64,
         "weather_source": 120,
     }
     out: dict[str, dict[str, str]] = {}

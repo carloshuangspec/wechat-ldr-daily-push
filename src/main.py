@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import date
 
 from dates import local_now_str, local_today, love_days, meet_status
 from gemini_line import generate_love_line
@@ -95,12 +96,17 @@ def build_payload_fields() -> dict[str, str]:
     slot = _env("PUSH_SLOT").lower()
     if slot not in {"cn", "us"}:
         raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
+    known_start = date.fromisoformat(
+        _env("KNOWN_START_DATE", "2019-09-02")
+    ).isoformat()
     # 各槽位按对应城市时区计算「今天」。
     today = local_today(tz_b if slot == "cn" else tz_a)
+    known_days = love_days(known_start, today=today)
 
     weather_a = brief_weather(city_a)
     weather_b = brief_weather(city_b)
-    love_line = generate_love_line()
+    known_line = f"Known: ≈{known_days} days\n"
+    love_line = known_line + generate_love_line()
 
     ld = love_days(love_start, today=today)
     fields = {
@@ -116,8 +122,15 @@ def build_payload_fields() -> dict[str, str]:
         "love_line": love_line,
         "weather_source": weather_source(),
     }
-    if any(not value.replace("°", "").isascii() for value in fields.values()):
-        raise ConfigError("Message contains non-English characters")
+    for key, value in fields.items():
+        if key == "love_line":
+            valid = value.startswith(known_line) and value[len(known_line):].isascii()
+        elif key in {"weather_a", "weather_b"}:
+            valid = value.replace("°", "").isascii()
+        else:
+            valid = value.isascii()
+        if not valid:
+            raise ConfigError("Message contains non-English characters")
     return fields
 
 

@@ -203,6 +203,106 @@ class SendModeTests(unittest.TestCase):
 
 
 class DateTests(unittest.TestCase):
+    def assert_english_payload(self, values: dict[str, str]) -> None:
+        for key, value in values.items():
+            with self.subTest(field=key):
+                if key in {"weather_a", "weather_b"}:
+                    self.assertTrue(value.replace("°", "").isascii())
+                elif key == "love_line":
+                    first_line, separator, generated_line = value.partition("\n")
+                    self.assertRegex(first_line, r"\AKnown: ≈[0-9]+ days\Z")
+                    self.assertEqual(separator, "\n")
+                    self.assertTrue(generated_line.isascii())
+                else:
+                    self.assertTrue(value.isascii())
+
+    def test_known_days_and_love_line_survive_template_rendering(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "cn",
+                    "KNOWN_START_DATE": "2019-09-02",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Thinking of you"),
+        ):
+            fields = main.build_payload_fields()
+            self.assertEqual(fields["love_days"], "71 days")
+            self.assertEqual(fields["meet_days"], "in 95 days")
+            self.assertEqual(fields["love_line"], "Known: ≈2572 days\nThinking of you")
+            self.assertEqual(
+                wechat.build_template_data(fields)["love_line"]["value"],
+                "Known: ≈2572 days\nThinking of you",
+            )
+            self.assert_english_payload(fields)
+
+    def test_invalid_known_start_date_fails_before_weather(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "cn",
+                    "KNOWN_START_DATE": "not-a-date",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "brief_weather") as weather_call,
+            patch.object(main, "generate_love_line", return_value="Thinking of you"),
+        ):
+            with self.assertRaises(ValueError):
+                main.build_payload_fields()
+            weather_call.assert_not_called()
+
+    def test_generated_line_cannot_add_non_english_characters(self) -> None:
+        for generated in ("Thinking ≈ of you", "Thinking ° of you", "早安"):
+            with (
+                self.subTest(generated=generated),
+                patch.dict(
+                    os.environ,
+                    {
+                        "PUSH_SLOT": "cn",
+                        "LOVE_START_DATE": "2026-07-08",
+                        "NEXT_MEET_DATE": "2026-12-20",
+                    },
+                    clear=True,
+                ),
+                patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+                patch.object(main, "local_now_str", return_value="08:00"),
+                patch.object(main, "brief_weather", return_value="Clear 20°C"),
+                patch.object(main, "generate_love_line", return_value=generated),
+            ):
+                with self.assertRaises(main.ConfigError):
+                    main.build_payload_fields()
+
+    def test_weather_cannot_add_approximation_sign(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "cn",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear ≈20°C"),
+            patch.object(main, "generate_love_line", return_value="Thinking of you"),
+        ):
+            with self.assertRaises(main.ConfigError):
+                main.build_payload_fields()
+
     def test_slots_use_their_own_local_calendar_date(self) -> None:
         base_env = {
             "LOVE_START_DATE": "2026-09-14",
@@ -228,9 +328,7 @@ class DateTests(unittest.TestCase):
                 self.assertEqual(fields["greeting"], "Good morning, love!")
                 self.assertEqual(fields["love_days"], love_text)
                 self.assertEqual(fields["meet_days"], meet_text)
-                self.assertTrue(
-                    all(value.replace("°", "").isascii() for value in fields.values())
-                )
+                self.assert_english_payload(fields)
 
     def test_meeting_has_three_states(self) -> None:
         today = date(2026, 9, 15)
@@ -272,8 +370,8 @@ class DateTests(unittest.TestCase):
             patch.object(main, "generate_love_line", return_value="Thinking of you"),
         ):
             data = wechat.build_template_data(main.build_payload_fields())
-            self.assertTrue(
-                all(value["value"].replace("°", "").isascii() for value in data.values())
+            self.assert_english_payload(
+                {key: value["value"] for key, value in data.items()}
             )
 
     def test_keyless_weather_source_is_attributed(self) -> None:
