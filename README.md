@@ -2,7 +2,7 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认收到，女友手机尚未确认。手动任务默认预览；定时 CN 真发代码仅处于准备态，须在两部手机的收件与内容均核对后另行开启。US 自测不会开启给 Carlos 的每日推送。
+当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已收到但反馈未显示预期英文情话，女友手机尚未确认。手动任务默认预览；定时 CN 真发代码仅处于准备态，须在两部手机的收件与内容均核对后另行开启。US 自测不会开启给 Carlos 的每日推送。
 
 ## 安全运行模式
 
@@ -49,6 +49,8 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。若日后单独开启 CN 定时真发，同一 CN 定时事件会跳过自动预览，避免独立生成两句不同文案；手动预览仍可用。手动 `live-self` / `live-cn` 只加载各自的收件人 OpenID；另有默认关闭的 `scheduled-cn`，仅在精确的 CN cron 和 `ENABLE_CN_DAILY=1` 时进入。三个真发 job 都只在各自的发送步骤加载对应 OpenID 与共用的三个微信 Secrets，并先运行单元测试。
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认，但仍需 CN 收件人确认收到，并核对消息、换行和天气来源，然后才决定是否开启定时 CN。若发现问题先排查，不自动重发。
+
+若手机收到了消息却看不到英文情话，先手动运行独立的 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，则只表示接口检查未完成，不能据此推断模板字段缺失。确认模板实际内容和手机完整消息前，不要盲目重发。
 
 ## 配置：必填与可选
 
@@ -132,7 +134,7 @@ B: Shanghai 08:00 Cloudy 22°C
 Together: 71 days
 Next meeting: in 95 days
 Known: ≈2572 days
-Thinking of you
+I choose you, always
 Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted
 ```
 

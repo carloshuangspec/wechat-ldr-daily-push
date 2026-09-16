@@ -9,6 +9,7 @@ import requests
 
 TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
 SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/template/send"
+TEMPLATE_LIST_URL = "https://api.weixin.qq.com/cgi-bin/template/get_all_private_template"
 
 
 class WeChatAPIError(RuntimeError):
@@ -95,6 +96,45 @@ def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
         else:
             out[key] = {"value": _short(fields.get(key, ""), limit)}
     return out
+
+
+def inspect_template_fields(
+    template_id: str | None = None, access_token: str | None = None
+) -> dict[str, Any]:
+    """Inspect only field presence for the configured template; return no IDs/content."""
+    selected_id = (template_id or os.getenv("WECHAT_TEMPLATE_ID") or "").strip()
+    if not selected_id:
+        raise WeChatAPIError("缺少微信模板配置")
+    token = access_token or get_access_token()
+    try:
+        response = requests.get(
+            TEMPLATE_LIST_URL,
+            params={"access_token": token},
+            timeout=10.0,
+            allow_redirects=False,
+        )
+        response.raise_for_status()
+        if response.status_code != 200:
+            raise WeChatAPIError("微信模板列表响应未被接受")
+        body = _safe_json(response)
+    except requests.RequestException:
+        raise WeChatAPIError("微信模板列表请求失败") from None
+
+    templates = body.get("template_list")
+    if not isinstance(templates, list) or not all(isinstance(t, dict) for t in templates):
+        raise WeChatAPIError("微信模板列表响应未被接受")
+    matches = [t for t in templates if t.get("template_id") == selected_id]
+    if not matches:
+        return {"template_found": False, "missing_fields": []}
+    if len(matches) != 1 or not isinstance(matches[0].get("content"), str):
+        raise WeChatAPIError("微信模板列表响应未被接受")
+
+    content = matches[0]["content"]
+    missing = [
+        name for name in build_template_data({})
+        if "{{" + name + ".DATA}}" not in content
+    ]
+    return {"template_found": True, "missing_fields": missing}
 
 
 def send_template(

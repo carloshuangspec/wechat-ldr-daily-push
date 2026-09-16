@@ -105,11 +105,12 @@ def generate_love_line(
             _unavailable("invalid_theme")
 
     prompt = (
-        "Write one warm, natural English line for my long-distance partner. "
-        "We each have our own lives and care about ordinary moments. "
-        "Use only 2 to 4 simple words, at most 16 printable ASCII characters including spaces. "
+        "Write one emotionally intimate English love line in my first-person voice, "
+        "directly to you, my long-distance partner. Express tender longing, devotion, "
+        "or vulnerable affection, not a generic check-in or logistics. Be original. "
+        "Use at most 20 printable ASCII characters including spaces. "
         "Output only the line, no quotes, emoji, explanations, or line breaks. "
-        "Do not invent today's events or the other person's thoughts."
+        "Do not invent shared memories, today's events, or the other person's thoughts or feelings."
     )
     if theme is not None:
         prompt += f" Today's optional theme: {theme}"

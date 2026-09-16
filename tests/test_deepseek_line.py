@@ -62,6 +62,23 @@ class DeepSeekLineTests(unittest.TestCase):
         self.assertIn("ordinary days", post.call_args.kwargs["json"]["messages"][0]["content"])
         self.assertNotIn("ordinary days", stderr.getvalue())
 
+    def test_prompt_asks_for_a_tender_personal_line_without_inventing_details(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response(content="I choose you, always")) as post,
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(generate_love_line(), "I choose you, always")
+        prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn("emotionally intimate", prompt)
+        self.assertIn("long-distance partner", prompt)
+        self.assertIn("directly to you", prompt)
+        self.assertIn("at most 20 printable ASCII characters", prompt)
+        self.assertIn("Do not invent shared memories", prompt)
+        self.assertIn("the other person's thoughts", prompt)
+        self.assertNotIn("ordinary moments", prompt)
+        self.assertNotIn("at most 16", prompt)
+
     def test_bad_theme_fails_before_request(self) -> None:
         for theme in ("  ", "a\nb", "x" * 121):
             with (
