@@ -20,13 +20,19 @@ class DeepSeekLineError(RuntimeError):
         super().__init__("DeepSeek line unavailable")
 
 
+def _unavailable(reason: str) -> None:
+    """Report one non-sensitive category, never a response or exception body."""
+    print(f"line_failure={reason}", file=sys.stderr)
+    raise DeepSeekLineError()
+
+
 def generate_love_line(
     theme: str | None = None, timeout: float | tuple[float, float] = (5, 30)
 ) -> str:
     """Ask for a fresh line; reject any failed or partial completion."""
     key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
     if not key:
-        raise DeepSeekLineError()
+        _unavailable("missing_key")
 
     if theme is not None:
         valid_theme = False
@@ -36,7 +42,7 @@ def generate_love_line(
         except DailyContentError:
             pass
         if not valid_theme:
-            raise DeepSeekLineError()
+            _unavailable("invalid_theme")
 
     prompt = (
         "Write one warm, natural English line for my long-distance partner. "
@@ -49,6 +55,8 @@ def generate_love_line(
         prompt += f" Today's optional theme: {theme}"
 
     data = None
+    status = None
+    failure = None
     try:
         response = requests.post(
             ENDPOINT,
@@ -65,22 +73,34 @@ def generate_love_line(
             timeout=timeout,
             allow_redirects=False,
         )
-        if response.status_code == 200:
+        status = response.status_code
+        if status == 200:
             data = response.json()
-    except (requests.RequestException, ValueError, TypeError):
-        pass
+    except requests.RequestException:
+        failure = "request_failed"
+    except (ValueError, TypeError):
+        failure = "invalid_json"
 
+    if failure is not None:
+        _unavailable(failure)
+    if status != 200:
+        safe_status = status if type(status) is int and status in {
+            400, 401, 402, 403, 404, 408, 422, 429, 500, 503
+        } else "other"
+        _unavailable(f"http_{safe_status}")
     if not isinstance(data, dict):
-        raise DeepSeekLineError()
+        _unavailable("invalid_response")
     choices = data.get("choices")
     if not isinstance(choices, list) or len(choices) != 1:
-        raise DeepSeekLineError()
+        _unavailable("invalid_response")
     choice = choices[0]
-    if not isinstance(choice, dict) or choice.get("finish_reason") != "stop":
-        raise DeepSeekLineError()
+    if not isinstance(choice, dict):
+        _unavailable("invalid_response")
+    if choice.get("finish_reason") != "stop":
+        _unavailable("abnormal_finish")
     message = choice.get("message")
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
-        raise DeepSeekLineError()
+        _unavailable("invalid_response")
     line = message["content"].strip(" ")
     if (
         not 1 <= len(line) <= 20
@@ -89,6 +109,6 @@ def generate_love_line(
         or line[0] in "\"'"
         or line[-1] in "\"'"
     ):
-        raise DeepSeekLineError()
+        _unavailable("invalid_text")
     print("line_source=deepseek", file=sys.stderr)
     return line

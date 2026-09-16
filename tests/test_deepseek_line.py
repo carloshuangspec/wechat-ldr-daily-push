@@ -128,14 +128,33 @@ class DeepSeekLineTests(unittest.TestCase):
                     generate_love_line()
 
     def test_network_exception_error_message_is_fixed_and_no_key_leaks(self) -> None:
+        stderr = StringIO()
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", side_effect=requests.Timeout("SECRET TEST_KEY RAW_BODY")),
+            redirect_stderr(stderr),
         ):
             with self.assertRaises(DeepSeekLineError) as caught:
                 generate_love_line()
         self.assertEqual(str(caught.exception), "DeepSeek line unavailable")
         self.assertIsNone(caught.exception.__context__)
+        self.assertEqual(stderr.getvalue(), "line_failure=request_failed\n")
+
+    def test_failure_diagnostics_are_fixed_categories_only(self) -> None:
+        cases = ((self.response(status=402), "http_402"),
+                 (self.response(content="This line has far too many characters"), "invalid_text"),
+                 (self.response(finish="length"), "abnormal_finish"))
+        for response, category in cases:
+            stderr = StringIO()
+            with (
+                self.subTest(category=category),
+                patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+                patch.object(requests, "post", return_value=response),
+                redirect_stderr(stderr),
+            ):
+                with self.assertRaises(DeepSeekLineError):
+                    generate_love_line()
+            self.assertEqual(stderr.getvalue(), f"line_failure={category}\n")
 
 
 if __name__ == "__main__":
