@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -15,6 +16,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
 import dates  # noqa: E402
+import gemini_line  # noqa: E402
 import main  # noqa: E402
 import weather  # noqa: E402
 import wechat  # noqa: E402
@@ -59,6 +61,7 @@ class SendModeTests(unittest.TestCase):
             send.assert_not_called()
             self.assertNotIn("TEST_TEMPLATE_ID_DO_NOT_LOG", stdout.getvalue())
             self.assertNotIn("TEST_OPENID_DO_NOT_LOG", stdout.getvalue())
+            self.assertFalse(json.loads(stdout.getvalue())["meta"]["gemini_key_set"])
 
     def test_unknown_mode_stops_before_payload_build(self) -> None:
         for mode in ("unexpected", "live-cn", "0", "1", "true", "false"):
@@ -208,8 +211,8 @@ class DateTests(unittest.TestCase):
             "CITY_B_TZ": "Asia/Shanghai",
         }
         cases = (
-            ("cn", "Asia/Shanghai", date(2026, 9, 15), "第2天", "还有5天"),
-            ("us", "America/Detroit", date(2026, 9, 14), "第1天", "还有6天"),
+            ("cn", "Asia/Shanghai", date(2026, 9, 15), "2 days", "in 5 days"),
+            ("us", "America/Detroit", date(2026, 9, 14), "1 day", "in 6 days"),
         )
         for slot, expected_tz, local_date, love_text, meet_text in cases:
             with (
@@ -217,19 +220,101 @@ class DateTests(unittest.TestCase):
                 patch.dict(os.environ, {**base_env, "PUSH_SLOT": slot}, clear=True),
                 patch.object(main, "local_today", return_value=local_date) as local_today,
                 patch.object(main, "local_now_str", return_value="08:00"),
-                patch.object(main, "brief_weather", return_value="天气暂不可用"),
-                patch.object(main, "generate_love_line", return_value="早安"),
+                patch.object(main, "brief_weather", return_value="Unavailable"),
+                patch.object(main, "generate_love_line", return_value="Thinking of you"),
             ):
                 fields = main.build_payload_fields()
                 local_today.assert_called_once_with(expected_tz)
+                self.assertEqual(fields["greeting"], "Good morning, love!")
                 self.assertEqual(fields["love_days"], love_text)
                 self.assertEqual(fields["meet_days"], meet_text)
+                self.assertTrue(
+                    all(value.replace("°", "").isascii() for value in fields.values())
+                )
 
     def test_meeting_has_three_states(self) -> None:
         today = date(2026, 9, 15)
-        self.assertEqual(dates.meet_status("2026-09-16", today), "还有1天")
-        self.assertEqual(dates.meet_status("2026-09-15", today), "就是今天")
-        self.assertEqual(dates.meet_status("2026-09-14", today), "见面日已过")
+        self.assertEqual(dates.meet_status("2026-09-16", today), "in 1 day")
+        self.assertEqual(dates.meet_status("2026-09-15", today), "today")
+        self.assertEqual(dates.meet_status("2026-09-14", today), "date passed")
+
+    def test_non_english_city_cannot_reach_recipient(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "CITY_A": "安娜堡",
+                    "PUSH_SLOT": "cn",
+                    "LOVE_START_DATE": "2026-09-14",
+                    "NEXT_MEET_DATE": "2026-09-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "brief_weather") as weather_call,
+        ):
+            with self.assertRaises(main.ConfigError):
+                main.build_payload_fields()
+            weather_call.assert_not_called()
+
+
+class LoveLineTests(unittest.TestCase):
+    def test_static_fallback_is_english_and_fits_template(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(gemini_line.FALLBACK_LINES)
+            self.assertTrue(
+                all(line.isascii() and len(line) <= 20 for line in gemini_line.FALLBACK_LINES)
+            )
+            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+
+    def test_gemini_uses_an_english_prompt_and_short_english_result(self) -> None:
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "You are my home"}]}}]
+        }
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=response) as post,
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+            prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
+            self.assertIn("English only", prompt)
+
+    def test_gemini_non_english_or_too_long_uses_english_fallback(self) -> None:
+        response = Mock()
+        response.raise_for_status.return_value = None
+        for generated in ("早安，想你了", "Missing you across all the miles between us"):
+            response.json.return_value = {
+                "candidates": [{"content": {"parts": [{"text": generated}]}}]
+            }
+            with (
+                self.subTest(generated=generated),
+                patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+                patch.object(requests, "post", return_value=response),
+            ):
+                self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+
+    def test_malformed_gemini_responses_use_english_fallback(self) -> None:
+        response = Mock()
+        response.raise_for_status.return_value = None
+        bodies = (
+            [],
+            {"candidates": "not-a-list"},
+            {"candidates": [{"content": {"parts": [123]}}]},
+            {"candidates": [{"content": {"parts": [{"text": 123}]}}]},
+        )
+        for body in bodies:
+            response.json.return_value = body
+            with (
+                self.subTest(body=body),
+                patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+                patch.object(requests, "post", return_value=response),
+            ):
+                try:
+                    line = gemini_line.generate_love_line()
+                except (AttributeError, TypeError) as exc:
+                    self.fail(f"Malformed response escaped as {type(exc).__name__}")
+                self.assertIn(line, gemini_line.FALLBACK_LINES)
 
 
 class WeChatSafetyTests(unittest.TestCase):
@@ -431,19 +516,54 @@ class QWeatherTests(unittest.TestCase):
     def test_weather_now_key_uses_header_not_query(self) -> None:
         response = Mock()
         response.raise_for_status.return_value = None
-        response.json.return_value = {"code": "200", "now": {"text": "晴"}}
+        response.json.return_value = {"code": "200", "now": {"text": "Sunny"}}
         with patch.dict(
             os.environ,
-                {
-                    "QWEATHER_KEY": "TEST_QWEATHER_KEY",
-                    "QWEATHER_API_HOST": "https://abc123.qweatherapi.com",
+            {
+                "QWEATHER_KEY": "TEST_QWEATHER_KEY",
+                "QWEATHER_API_HOST": "https://abc123.qweatherapi.com",
             },
             clear=True,
         ), patch.object(weather.requests, "get", return_value=response) as request:
-            self.assertEqual(weather.weather_now("1"), {"text": "晴"})
+            self.assertEqual(weather.weather_now("1"), {"text": "Sunny"})
             kwargs = request.call_args.kwargs
             self.assertEqual(kwargs["headers"], {"X-QW-Api-Key": "TEST_QWEATHER_KEY"})
-            self.assertEqual(kwargs["params"], {"location": "1"})
+            self.assertEqual(kwargs["params"], {"location": "1", "lang": "en"})
+
+    def test_non_english_weather_response_degrades_to_english(self) -> None:
+        env = {
+            "QWEATHER_KEY": "TEST_QWEATHER_KEY",
+            "QWEATHER_API_HOST": "https://abc123.qweatherapi.com",
+        }
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(weather, "lookup_city", return_value={"id": "1"}),
+            patch.object(
+                weather, "weather_now", return_value={"text": "晴", "temp": "12"}
+            ),
+        ):
+            self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_REQUEST)
+            self.assertTrue(weather.UNAVAILABLE_REQUEST.isascii())
+            self.assertLessEqual(len(weather.UNAVAILABLE_REQUEST), 16)
+            self.assertTrue(weather.UNAVAILABLE_CONFIG.isascii())
+            self.assertLessEqual(len(weather.UNAVAILABLE_CONFIG), 16)
+
+    def test_long_english_weather_keeps_readable_description(self) -> None:
+        env = {
+            "QWEATHER_KEY": "TEST_QWEATHER_KEY",
+            "QWEATHER_API_HOST": "https://abc123.qweatherapi.com",
+        }
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(weather, "lookup_city", return_value={"id": "1"}),
+            patch.object(
+                weather,
+                "weather_now",
+                return_value={"text": "Mostly cloudy", "temp": "12"},
+            ),
+        ):
+            self.assertEqual(weather.brief_weather("Shanghai"), "Mostly cloudy")
+
 
     def test_missing_host_degrades_without_request(self) -> None:
         with patch.dict(
@@ -526,6 +646,27 @@ class QWeatherTests(unittest.TestCase):
         )
 
 
+class DocumentationTests(unittest.TestCase):
+    def test_wechat_template_is_english_and_keeps_existing_variables(self) -> None:
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+            encoding="utf-8"
+        )
+        section = readme.split("## 微信模板", 1)[1]
+        template = section.split("```text\n", 1)[1].split("\n```", 1)[0]
+        self.assertEqual(
+            template,
+            (
+                "{{greeting.DATA}}\n"
+                "A: {{city_a.DATA}} {{time_a.DATA}} {{weather_a.DATA}}\n"
+                "B: {{city_b.DATA}} {{time_b.DATA}} {{weather_b.DATA}}\n"
+                "Together: {{love_days.DATA}}\n"
+                "Next meeting: {{meet_days.DATA}}\n"
+                "{{love_line.DATA}}\n"
+                "Weather: {{weather_source.DATA}}"
+            ),
+        )
+
+
 class WorkflowPolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -568,6 +709,10 @@ class WorkflowPolicyTests(unittest.TestCase):
             self.assertNotIn("WECHAT_TEMPLATE_ID:", job)
             self.assertNotIn("WECHAT_OPENID_CN:", job)
             self.assertNotIn("SEND_MODE: ${{", job)
+
+    def test_optional_gemini_is_available_in_each_message_job(self) -> None:
+        self.assertEqual(self.workflow.count("GEMINI_API_KEY:"), 3)
+        self.assertEqual(self.workflow.count("GEMINI_MODEL:"), 3)
 
     def test_only_live_cn_job_can_load_wechat_credentials(self) -> None:
         live_job = self.workflow.split("  live-cn:", 1)[1]

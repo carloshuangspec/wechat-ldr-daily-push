@@ -8,8 +8,8 @@ from urllib.parse import urlsplit
 
 import requests
 
-UNAVAILABLE_CONFIG = "QWeather 配置不完整"
-UNAVAILABLE_REQUEST = "QWeather 请求失败"
+UNAVAILABLE_CONFIG = "Unavailable"
+UNAVAILABLE_REQUEST = "Weather offline"
 
 
 def _host() -> str:
@@ -80,7 +80,7 @@ def weather_now(location_id: str, timeout: float = 10.0) -> dict[str, Any] | Non
     try:
         r = requests.get(
             url,
-            params={"location": location_id},
+            params={"location": location_id, "lang": "en"},
             headers={"X-QW-Api-Key": key},
             timeout=timeout,
         )
@@ -98,7 +98,7 @@ def weather_now(location_id: str, timeout: float = 10.0) -> dict[str, Any] | Non
 
 def brief_weather(city_name: str) -> str:
     """
-    返回简短天气文案，如「晴 12°C」。
+    返回简短英文天气文案，如 "Sunny 12°C"。
     配置不完整或请求失败时返回不含敏感值的状态。
     """
     if not _key() or not _host():
@@ -112,8 +112,14 @@ def brief_weather(city_name: str) -> str:
     now = weather_now(str(loc_id))
     if not now:
         return UNAVAILABLE_REQUEST
-    text = str(now.get("text") or "").strip() or "—"
+    text = str(now.get("text") or "").strip()
+    if not text or not text.isascii() or not text.isprintable():
+        return UNAVAILABLE_REQUEST
     temp = now.get("temp")
     if temp is not None and str(temp) != "":
-        return f"{text} {temp}°C"
-    return text
+        if not str(temp).lstrip("-").isdigit():
+            return UNAVAILABLE_REQUEST
+        result = f"{text} {temp}°C"
+        if len(result) <= 16:
+            return result
+    return text if len(text) <= 16 else UNAVAILABLE_REQUEST

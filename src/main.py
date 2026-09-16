@@ -80,6 +80,8 @@ def validate_live_configuration() -> str:
 def build_payload_fields() -> dict[str, str]:
     city_a = _env("CITY_A", "Ann Arbor")
     city_b = _env("CITY_B", "Shanghai")
+    if not city_a.isascii() or not city_b.isascii():
+        raise ConfigError("CITY_A/CITY_B must use English names")
     tz_a = _env("CITY_A_TZ", "America/Detroit")
     tz_b = _env("CITY_B_TZ", "Asia/Shanghai")
 
@@ -101,19 +103,22 @@ def build_payload_fields() -> dict[str, str]:
     love_line = generate_love_line()
 
     ld = love_days(love_start, today=today)
-    return {
-        "greeting": "早安，想你了",
+    fields = {
+        "greeting": "Good morning, love!",
         "city_a": city_a,
         "time_a": local_now_str(tz_a),
         "weather_a": weather_a,
         "city_b": city_b,
         "time_b": local_now_str(tz_b),
         "weather_b": weather_b,
-        "love_days": f"第{ld}天",
+        "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
         "meet_days": meet_status(next_meet, today=today),
         "love_line": love_line,
         "weather_source": "QWeather https://www.qweather.com",
     }
+    if any(not value.replace("°", "").isascii() for value in fields.values()):
+        raise ConfigError("Message contains non-English characters")
+    return fields
 
 
 def main() -> int:

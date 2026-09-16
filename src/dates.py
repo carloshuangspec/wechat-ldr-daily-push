@@ -28,10 +28,10 @@ def meet_status(next_meet: str, today: date | None = None) -> str:
     d = today or date.today()
     delta = (meet_d - d).days
     if delta > 0:
-        return f"还有{delta}天"
+        return f"in {delta} day" if delta == 1 else f"in {delta} days"
     if delta == 0:
-        return "就是今天"
-    return "见面日已过"
+        return "today"
+    return "date passed"
 
 
 def local_now_str(tz_name: str, fmt: str = "%H:%M") -> str:
