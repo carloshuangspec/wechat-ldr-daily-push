@@ -703,6 +703,43 @@ class LoveLineTests(unittest.TestCase):
         }
         return response
 
+    def test_missing_gemini_key_reports_fallback_source_once(self) -> None:
+        stderr = StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(requests, "post") as post,
+            redirect_stderr(stderr),
+        ):
+            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+        post.assert_not_called()
+        self.assertEqual(stderr.getvalue(), "gemini_source=fallback\n")
+
+    def test_valid_gemini_response_reports_generated_source_once(self) -> None:
+        stderr = StringIO()
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.successful_response()),
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(gemini_line.generate_love_line(), "You are my home")
+        self.assertEqual(stderr.getvalue(), "gemini_source=generated\n")
+        self.assertNotIn("TEST_KEY", stderr.getvalue())
+        self.assertNotIn("You are my home", stderr.getvalue())
+
+    def test_gemini_timeout_reports_fallback_source_without_error(self) -> None:
+        stderr = StringIO()
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(
+                requests, "post", side_effect=requests.Timeout("RAW_ERROR_BODY TEST_KEY")
+            ),
+            redirect_stderr(stderr),
+        ):
+            self.assertIn(gemini_line.generate_love_line(), gemini_line.FALLBACK_LINES)
+        self.assertEqual(stderr.getvalue(), "gemini_source=fallback\n")
+        self.assertNotIn("TEST_KEY", stderr.getvalue())
+        self.assertNotIn("RAW_ERROR_BODY", stderr.getvalue())
+
     def test_static_fallback_is_english_and_fits_template(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertTrue(gemini_line.FALLBACK_LINES)

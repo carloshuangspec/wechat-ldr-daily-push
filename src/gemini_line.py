@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 from datetime import date
 
 import requests
@@ -27,6 +28,7 @@ FALLBACK_LINES = [
 def _fallback() -> str:
     # 按日期稳定一点，避免同日乱跳；再加一点随机
     idx = (date.today().toordinal() + random.randint(0, 2)) % len(FALLBACK_LINES)
+    print("gemini_source=fallback", file=sys.stderr)
     return FALLBACK_LINES[idx]
 
 
@@ -78,6 +80,7 @@ def generate_love_line(timeout: float = 15.0) -> str:
         line = line.strip("\"'").split("\n")[0].strip()
         if not line or len(line) > 20 or not line.isascii() or not line.isprintable():
             return _fallback()
+        print("gemini_source=generated", file=sys.stderr)
         return line
     except (
         requests.RequestException,
