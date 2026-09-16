@@ -43,8 +43,11 @@ def get_access_token(
                 "secret": app_secret,
             },
             timeout=timeout,
+            allow_redirects=False,
         )
         r.raise_for_status()
+        if r.status_code != 200:
+            raise WeChatAPIError("微信 token 响应未被接受")
         data = _safe_json(r)
     except requests.RequestException:
         raise WeChatAPIError("微信 token 请求失败") from None
@@ -58,7 +61,9 @@ def _short(value: Any, limit: int = 20) -> str:
     s = str(value if value is not None else "")
     if len(s) <= limit:
         return s
-    return s[: max(limit - 1, 1)] + "…"
+    if limit < 3:
+        return s[:limit]
+    return s[:limit - 3] + "..."
 
 
 def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
@@ -115,8 +120,11 @@ def send_template(
             params={"access_token": token},
             json=payload,
             timeout=timeout,
+            allow_redirects=False,
         )
         r.raise_for_status()
+        if r.status_code != 200:
+            raise WeChatAPIError("微信模板响应未被接受")
         result = _safe_json(r)
     except requests.RequestException:
         raise WeChatAPIError("微信模板请求失败") from None

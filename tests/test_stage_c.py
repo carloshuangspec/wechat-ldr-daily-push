@@ -256,6 +256,26 @@ class DateTests(unittest.TestCase):
                 main.build_payload_fields()
             weather_call.assert_not_called()
 
+    def test_final_preview_values_remain_english_after_truncation(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "CITY_A": "San Francisco",
+                    "PUSH_SLOT": "cn",
+                    "LOVE_START_DATE": "2026-09-14",
+                    "NEXT_MEET_DATE": "2026-09-20",
+                },
+                clear=True,
+            ),
+            patch.object(main, "brief_weather", return_value="Unavailable"),
+            patch.object(main, "generate_love_line", return_value="Thinking of you"),
+        ):
+            data = wechat.build_template_data(main.build_payload_fields())
+            self.assertTrue(
+                all(value["value"].replace("°", "").isascii() for value in data.values())
+            )
+
 
 class LoveLineTests(unittest.TestCase):
     def test_static_fallback_is_english_and_fits_template(self) -> None:
@@ -321,9 +341,26 @@ class WeChatSafetyTests(unittest.TestCase):
     @staticmethod
     def response(data: object) -> Mock:
         response = Mock()
+        response.status_code = 200
         response.json.return_value = data
         response.raise_for_status.return_value = None
         return response
+
+    def test_token_redirect_is_rejected_without_forwarding_secret(self) -> None:
+        response = self.response({"access_token": "fake"})
+        response.status_code = 302
+        with patch.object(wechat.requests, "get", return_value=response) as request:
+            with self.assertRaises(wechat.WeChatAPIError):
+                wechat.get_access_token("app", "secret")
+            self.assertIs(request.call_args.kwargs["allow_redirects"], False)
+
+    def test_template_redirect_is_rejected_without_forwarding_payload(self) -> None:
+        response = self.response({"errcode": 0, "errmsg": "ok", "msgid": 123})
+        response.status_code = 307
+        with patch.object(wechat.requests, "post", return_value=response) as request:
+            with self.assertRaises(wechat.WeChatAPIError):
+                wechat.send_template("openid", "template", {"greeting": "hi"}, "token")
+            self.assertIs(request.call_args.kwargs["allow_redirects"], False)
 
     def test_empty_json_token_response_fails(self) -> None:
         with patch.object(wechat.requests, "get", return_value=self.response({})):
@@ -497,6 +534,7 @@ class WeChatSafetyTests(unittest.TestCase):
 class QWeatherTests(unittest.TestCase):
     def test_key_uses_header_not_query(self) -> None:
         response = Mock()
+        response.status_code = 200
         response.raise_for_status.return_value = None
         response.json.return_value = {"code": "200", "location": [{"id": "1"}]}
         with patch.dict(
@@ -512,9 +550,11 @@ class QWeatherTests(unittest.TestCase):
             self.assertEqual(kwargs["headers"], {"X-QW-Api-Key": "TEST_QWEATHER_KEY"})
             self.assertEqual(kwargs["params"], {"location": "Shanghai"})
             self.assertNotIn("key", kwargs["params"])
+            self.assertIs(kwargs["allow_redirects"], False)
 
     def test_weather_now_key_uses_header_not_query(self) -> None:
         response = Mock()
+        response.status_code = 200
         response.raise_for_status.return_value = None
         response.json.return_value = {"code": "200", "now": {"text": "Sunny"}}
         with patch.dict(
@@ -529,6 +569,31 @@ class QWeatherTests(unittest.TestCase):
             kwargs = request.call_args.kwargs
             self.assertEqual(kwargs["headers"], {"X-QW-Api-Key": "TEST_QWEATHER_KEY"})
             self.assertEqual(kwargs["params"], {"location": "1", "lang": "en"})
+            self.assertIs(kwargs["allow_redirects"], False)
+
+    def test_weather_redirect_response_is_rejected(self) -> None:
+        response = Mock()
+        response.status_code = 302
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"code": "200", "location": [{"id": "1"}]}
+        with patch.dict(
+            os.environ,
+            {"QWEATHER_KEY": "TEST_KEY", "QWEATHER_API_HOST": "abc123.qweatherapi.com"},
+            clear=True,
+        ), patch.object(weather.requests, "get", return_value=response):
+            self.assertIsNone(weather.lookup_city("Shanghai"))
+
+    def test_non_ascii_temperature_degrades_to_english(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"QWEATHER_KEY": "TEST_KEY", "QWEATHER_API_HOST": "abc123.qweatherapi.com"},
+                clear=True,
+            ),
+            patch.object(weather, "lookup_city", return_value={"id": "1"}),
+            patch.object(weather, "weather_now", return_value={"text": "Sunny", "temp": "１２"}),
+        ):
+            self.assertEqual(weather.brief_weather("Shanghai"), weather.UNAVAILABLE_REQUEST)
 
     def test_non_english_weather_response_degrades_to_english(self) -> None:
         env = {
@@ -594,6 +659,7 @@ class QWeatherTests(unittest.TestCase):
         )
         for body in malformed_lookup:
             response = Mock()
+            response.status_code = 200
             response.raise_for_status.return_value = None
             response.json.return_value = body
             with self.subTest(endpoint="lookup", body=body), patch.dict(
@@ -608,6 +674,7 @@ class QWeatherTests(unittest.TestCase):
         )
         for body in malformed_weather:
             response = Mock()
+            response.status_code = 200
             response.raise_for_status.return_value = None
             response.json.return_value = body
             with self.subTest(endpoint="weather", body=body), patch.dict(

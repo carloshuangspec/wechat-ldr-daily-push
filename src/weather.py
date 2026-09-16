@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -55,8 +56,11 @@ def lookup_city(name: str, timeout: float = 10.0) -> dict[str, Any] | None:
             params={"location": name},
             headers={"X-QW-Api-Key": key},
             timeout=timeout,
+            allow_redirects=False,
         )
         r.raise_for_status()
+        if r.status_code != 200:
+            return None
         data = r.json()
         if not isinstance(data, dict):
             return None
@@ -83,8 +87,11 @@ def weather_now(location_id: str, timeout: float = 10.0) -> dict[str, Any] | Non
             params={"location": location_id, "lang": "en"},
             headers={"X-QW-Api-Key": key},
             timeout=timeout,
+            allow_redirects=False,
         )
         r.raise_for_status()
+        if r.status_code != 200:
+            return None
         data = r.json()
         if not isinstance(data, dict):
             return None
@@ -117,7 +124,7 @@ def brief_weather(city_name: str) -> str:
         return UNAVAILABLE_REQUEST
     temp = now.get("temp")
     if temp is not None and str(temp) != "":
-        if not str(temp).lstrip("-").isdigit():
+        if not re.fullmatch(r"-?[0-9]+", str(temp)):
             return UNAVAILABLE_REQUEST
         result = f"{text} {temp}°C"
         if len(result) <= 16:
