@@ -57,10 +57,10 @@
 - [ ] Trigger one `live-self`, `slot=us`, `confirmation=SEND_SELF_ONCE` manual run. Inspect status and only the whitelisted `errcode`/`msgid` result; do not print token, IDs or request body. If accepted, trigger one `live-cn`, `slot=cn`, `confirmation=SEND_CN_ONCE` manual run and inspect the same redacted result. If either fails, stop; do not automatically retry.
 - [ ] Ask Carlos to check both phones, including newline and weather attribution. API acceptance is not phone receipt.
 
-### Task 5: CN daily enablement only after receipt
+### Task 5: Prepare a default-off CN schedule; enable only after receipt
 
 **Files:** Modify `.github/workflows/daily-push.yml`, `src/main.py`, `tests/test_stage_c.py`, `README.md`.
 
 - [ ] Add failing tests for a separate `schedule-cn` live context: only `GITHUB_EVENT_NAME=schedule`, `GITHUB_EVENT_SCHEDULE=7 8 * * *`, canonical repo/main, `LIVE_RECIPIENT=cn`, `PUSH_SLOT=cn`, and `ENABLE_CN_DAILY=1` may send. Manual `SEND_CN_ONCE` must not enable schedule. Absent/other values of `ENABLE_CN_DAILY` and the US cron must fail before weather or send.
 - [ ] Run focused tests to verify failure, then implement a separate schedule branch in `validate_send_context` and a `scheduled-cn` workflow job conditioned on `github.event_name == 'schedule' && github.event.schedule == '7 8 * * *' && vars.ENABLE_CN_DAILY == '1'`. Inject only the CN OpenID and common WeChat Secrets, plus `GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}` and `ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}`. Keep manual role checks independent. Preserve US preview-only and CN preview regardless of gate state.
-- [ ] Run full tests and review job-level Secret isolation; commit and push. Leave the variable unset unless Carlos has confirmed both actual phone receipts. Once confirmed, set only repository variable `ENABLE_CN_DAILY=1` and verify its name/value (not a credential); do not trigger an extra manual send.
+- [ ] Run full tests and review job-level Secret isolation; commit and push the default-off schedule. Verify `ENABLE_CN_DAILY` is absent before and after push, so this preparation cannot cause a scheduled send. Leave the variable unset unless Carlos has confirmed both actual phone receipts. Once confirmed, set only repository variable `ENABLE_CN_DAILY=1` and verify its name/value (not a credential); do not trigger an extra manual send.
