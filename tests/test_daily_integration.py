@@ -25,6 +25,26 @@ BASE_ENV = {
 
 
 class DailyIntegrationTests(unittest.TestCase):
+    def test_visible_meeting_field_carries_full_deepseek_line(self) -> None:
+        with (
+            patch.dict(os.environ, {**BASE_ENV, "PUSH_SLOT": "us"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="I ache for you."),
+        ):
+            fields = main.build_payload_fields()
+        self.assertEqual(fields["meet_days"], "in 95 days | I ache for you.")
+        self.assertEqual(
+            wechat.build_template_data(fields)["meet_days"]["value"],
+            "in 95 days | I ache for you.",
+        )
+        self.assertEqual(fields["love_line"].split("\n", 1)[0], "I ache for you.")
+
+    def test_meeting_field_rejects_truncation_of_emotional_line(self) -> None:
+        with self.assertRaises(ValueError):
+            wechat.build_template_data({"meet_days": "in 95 days | " + "X" * 65})
+
     def test_exact_cn_line_bypasses_provider_and_survives_rendering(self) -> None:
         env = {
             **BASE_ENV,
@@ -44,6 +64,7 @@ class DailyIntegrationTests(unittest.TestCase):
         generate.assert_not_called()
         today.assert_called_once_with("Asia/Shanghai")
         self.assertEqual(fields["love_line"], "My favorite day\nKnown: ≈2572 days")
+        self.assertEqual(fields["meet_days"], "in 95 days | My favorite day")
         self.assertEqual(
             wechat.build_template_data(fields)["love_line"]["value"], fields["love_line"]
         )

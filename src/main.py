@@ -150,7 +150,8 @@ def build_payload_fields() -> dict[str, str]:
         or not short_line.isprintable()
     ):
         raise ConfigError("Invalid English love line")
-    # Show the emotional line first even in clients that preview only the first line.
+    # Keep the dedicated field, and mirror the line in the meeting field that
+    # the test-account card is known to display.
     love_line = short_line + known_suffix
     if len(love_line) > 64:
         raise ConfigError("Love line exceeds template limit")
@@ -165,7 +166,7 @@ def build_payload_fields() -> dict[str, str]:
         "time_b": local_now_str(tz_b),
         "weather_b": weather_b,
         "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
-        "meet_days": meet_status(next_meet, today=today),
+        "meet_days": f"{meet_status(next_meet, today=today)} | {short_line}",
         "love_line": love_line,
         "weather_source": weather_source(),
     }
@@ -195,8 +196,11 @@ def main() -> int:
     try:
         fields = build_payload_fields()
         template_data = build_template_data(fields)
-        if template_data["love_line"]["value"] != fields["love_line"]:
-            raise ConfigError("Love line was not rendered intact")
+        if any(
+            template_data[key]["value"] != fields[key]
+            for key in ("meet_days", "love_line")
+        ):
+            raise ConfigError("Meeting or love line was not rendered intact")
     except SystemExit:
         raise
     except Exception:

@@ -50,7 +50,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认，但仍需 CN 收件人确认收到，并核对消息、换行和天气来源，然后才决定是否开启定时 CN。若发现问题先排查，不自动重发。
 
-若手机收到了消息却看不到英文情话，先手动运行独立的 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，则只表示接口检查未完成，不能据此推断模板字段缺失。确认模板实际内容和手机完整消息前，不要盲目重发。
+若手机收到了消息却看不到英文情话，先手动运行独立的 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，则只表示接口检查未完成，不能据此推断模板字段缺失。模板含有字段也不能保证微信客户端卡片将它显示出来。当前观察到的测试号卡片只显示双城天气、Together 和 Next meeting；程序因此将同一句英文情话也附在 Next meeting 行中，仍须在手机上确认最终呈现。不要盲目重发。
 
 ## 配置：必填与可选
 
@@ -113,7 +113,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。无需为认识天数添加模板字段：`love_line` 会包含两行英文文本，**先显示情话**，再显示 `Known: ≈N days`。这样只显示首行的消息摘要也会优先出现英文情话；仍须打开手机上的完整消息核对。`weather_source` 会标明本次选择的天气服务和官网链接：
+测试号模板字段必须与下面一致，固定标签请用英文。无需为认识天数添加模板字段：`love_line` 包含两行英文文本，先是情话，再是 `Known: ≈N days`。为适配目前只显示中间四行的测试号卡片，`meet_days` 会显示 `in N days | 英文情话`；独立 `love_line` 字段仍保留。`weather_source` 会标明本次选择的天气服务和官网链接；目前的卡片也可能不显示这一行，仍须核对手机实际呈现：
 
 ```text
 {{greeting.DATA}}
@@ -132,7 +132,7 @@ Good morning, love!
 A: Ann Arbor 20:00 Sunny 12°C
 B: Shanghai 08:00 Cloudy 22°C
 Together: 71 days
-Next meeting: in 95 days
+Next meeting: in 95 days | I choose you, always
 I choose you, always
 Known: ≈2572 days
 Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted

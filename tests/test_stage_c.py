@@ -50,7 +50,10 @@ SCHEDULED_CN_ENV = {
     "WECHAT_OPENID_CN": "TEST_CN_OPENID_DO_NOT_LOG",
 }
 
-TEST_FIELDS = {"love_line": "Known: ≈1 days\nHello"}
+TEST_FIELDS = {
+    "meet_days": "in 95 days | Hello",
+    "love_line": "Known: ≈1 days\nHello",
+}
 
 
 class SendModeTests(unittest.TestCase):
@@ -503,7 +506,7 @@ class DateTests(unittest.TestCase):
         ):
             fields = main.build_payload_fields()
             self.assertEqual(fields["love_days"], "71 days")
-            self.assertEqual(fields["meet_days"], "in 95 days")
+            self.assertEqual(fields["meet_days"], "in 95 days | Thinking of you")
             self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
             self.assertEqual(
                 wechat.build_template_data(fields)["love_line"]["value"],
@@ -530,7 +533,7 @@ class DateTests(unittest.TestCase):
             fields = main.build_payload_fields()
             self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
             self.assertEqual(fields["love_days"], "71 days")
-            self.assertEqual(fields["meet_days"], "in 95 days")
+            self.assertEqual(fields["meet_days"], "in 95 days | Thinking of you")
 
     def test_invalid_known_start_date_fails_before_weather(self) -> None:
         with (
@@ -616,7 +619,7 @@ class DateTests(unittest.TestCase):
                 local_today.assert_called_once_with(expected_tz)
                 self.assertEqual(fields["greeting"], "Good morning, love!")
                 self.assertEqual(fields["love_days"], love_text)
-                self.assertEqual(fields["meet_days"], meet_text)
+                self.assertEqual(fields["meet_days"], f"{meet_text} | Thinking of you")
                 self.assert_english_payload(fields)
 
     def test_meeting_has_three_states(self) -> None:

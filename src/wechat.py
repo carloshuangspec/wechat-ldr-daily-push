@@ -83,16 +83,16 @@ def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
         "time_b": 10,
         "weather_b": 16,
         "love_days": 12,
-        "meet_days": 12,
+        "meet_days": 64,
         "love_line": 64,
         "weather_source": 120,
     }
     out: dict[str, dict[str, str]] = {}
     for key, limit in limits.items():
-        if key == "love_line":
+        if key in {"meet_days", "love_line"}:
             line = str(fields.get(key, ""))
             if len(line) > limit:
-                raise ValueError("Love line exceeds template limit")
+                raise ValueError("Meeting or love line exceeds template limit")
             out[key] = {"value": line}
         else:
             out[key] = {"value": _short(fields.get(key, ""), limit)}
