@@ -2,7 +2,7 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动任务默认预览；同一个上海 09:00 定时事件下有两条独立的真发路径。SELF 每日开关可在本人验收后开启；CN 每日开关须等女友手机确认新版本的实际内容后另行开启。
+当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动任务默认预览；同一个上海 09:00 定时事件下有两条独立的真发路径。SELF 每日开关已开启，仍待首次定时实际运行验收；CN 每日开关须等女友手机确认新版本的实际内容后另行开启。
 
 ## 安全运行模式
 
@@ -89,7 +89,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
 
-每日发送使用两个独立的 Actions Variable 开关：`ENABLE_SELF_DAILY` 控制本人、`ENABLE_CN_DAILY` 控制女友；**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。本人手机已确认收到修复后的情话，可以单独开启 SELF 日推；女友手机尚未确认新版本内容，CN 日推保持关闭，待其明确确认后再单独开启。要关闭某人的日推，立即将对应变量改成 `0` 或删除；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。手动确认短语不能代替每日开关。
+每日发送使用两个独立的 Actions Variable 开关：`ENABLE_SELF_DAILY` 控制本人、`ENABLE_CN_DAILY` 控制女友；**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。本人手机已确认收到修复后的情话，`ENABLE_SELF_DAILY` 已设置为 `1`；女友手机尚未确认新版本内容，`ENABLE_CN_DAILY` 仍不存在，CN 日推保持关闭，待其明确确认后再单独开启。要关闭某人的日推，立即将对应变量改成 `0` 或删除；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。手动确认短语不能代替每日开关。
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
