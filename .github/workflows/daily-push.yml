@@ -520,7 +520,7 @@ jobs:
         inputs.slot == 'both' && inputs.confirmation == '' &&
         github.actor == 'carloshuangspec' && github.triggering_actor == 'carloshuangspec'))
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     permissions:
       contents: write
     outputs:
@@ -534,7 +534,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install claim dependency
-        run: pip install requests
+        run: pip install -r requirements.txt
       - name: Claim delivery day
         id: claim
         env:

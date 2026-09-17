@@ -114,6 +114,7 @@ class PairedDeliveryTests(unittest.TestCase):
         self.assertLess(workflow.index("  claim-daily:\n"), workflow.index("  daily-both:\n"))
         for fragment in (
             "needs: validate-dispatch",
+            "timeout-minutes: 5",
             "permissions:\n      contents: write",
             "outputs:",
             "claimed: ${{ steps.claim.outputs.claimed }}",
@@ -121,6 +122,7 @@ class PairedDeliveryTests(unittest.TestCase):
             "id: claim",
             "GH_TOKEN: ${{ github.token }}",
             "DELIVERY_DATE: ${{ inputs.delivery_date }}",
+            "run: pip install -r requirements.txt",
             "python src/daily_claim.py",
             "github.event.schedule == '0 9 * * *'",
             "inputs.mode == 'daily-both'",

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
@@ -1223,6 +1225,61 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIn('daily-both requires slot=both, blank confirmation, and today in Shanghai.', self.workflow)
         self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 6)
         self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 6)
+
+    def test_daily_both_validator_is_offline_and_fail_closed(self) -> None:
+        self.assertIn("      delivery_date:\n", self.workflow)
+        date_input = self.workflow.split("      delivery_date:\n", 1)[1].split(
+            "\n\npermissions:", 1
+        )[0]
+        self.assertIn("required: false", date_input)
+        self.assertIn('default: ""', date_input)
+
+        validator = self.workflow.split("        run: |\n", 1)[1].split(
+            "\n\n  preview-cn:", 1
+        )[0]
+        base_env = {
+            "REQUEST_EVENT": "workflow_dispatch",
+            "REQUEST_MODE": "daily-both",
+            "REQUEST_SLOT": "both",
+            "REQUEST_CONFIRMATION": "",
+            "REQUEST_DELIVERY_DATE": "2026-09-17",
+            "REQUEST_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
+            "REQUEST_REF": "refs/heads/main",
+            "REQUEST_ACTOR": "carloshuangspec",
+            "REQUEST_TRIGGERING_ACTOR": "carloshuangspec",
+            "REQUEST_ATTEMPT": "1",
+            "ENABLE_CN_DAILY": "1",
+            "ENABLE_SELF_DAILY": "1",
+        }
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            fake_date = Path(temporary_dir) / "date"
+            fake_date.write_text("#!/bin/sh\nprintf '%s\\n' 2026-09-17\n", encoding="utf-8")
+            fake_date.chmod(0o755)
+            env = {"PATH": f"{temporary_dir}:{os.environ['PATH']}", **base_env}
+            valid = subprocess.run(
+                ["bash", "-c", validator], env=env, capture_output=True, text=True
+            )
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            for name, value in (
+                ("REQUEST_SLOT", "cn"),
+                ("REQUEST_CONFIRMATION", "SEND_CN_ONCE"),
+                ("REQUEST_DELIVERY_DATE", "2026-09-18"),
+                ("REQUEST_REPOSITORY", "someone/fork"),
+                ("REQUEST_REF", "refs/heads/other"),
+                ("REQUEST_ACTOR", "someone-else"),
+                ("REQUEST_TRIGGERING_ACTOR", "someone-else"),
+                ("REQUEST_ATTEMPT", "2"),
+                ("ENABLE_CN_DAILY", "0"),
+                ("ENABLE_SELF_DAILY", "0"),
+            ):
+                with self.subTest(name=name):
+                    result = subprocess.run(
+                        ["bash", "-c", validator],
+                        env={**env, name: value},
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
 
     def test_preview_jobs_have_no_wechat_credentials(self) -> None:
         self.assertIn("  live-self:", self.workflow)
