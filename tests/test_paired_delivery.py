@@ -175,9 +175,15 @@ class PairedDeliveryTests(unittest.TestCase):
             ("GITHUB_REF", "refs/heads/other"),
             ("GITHUB_RUN_ATTEMPT", "2"),
             ("DAILY_CLAIM_CREATED", ""),
+            ("DAILY_CLAIM_CREATED", " true "),
             ("DAILY_CLAIM_DATE", "2026-09-18"),
+            ("DAILY_CLAIM_DATE", " 2026-09-17 "),
             ("ENABLE_CN_DAILY", "0"),
+            ("ENABLE_CN_DAILY", " 1 "),
             ("ENABLE_SELF_DAILY", "0"),
+            ("ENABLE_SELF_DAILY", " 1 "),
+            ("LIVE_DISPATCH_MODE", " daily-both "),
+            ("LIVE_DISPATCH_DATE", " 2026-09-17 "),
             ("PUSH_SLOT", "us"),
         ):
             with (
@@ -215,6 +221,18 @@ class PairedDeliveryTests(unittest.TestCase):
         ):
             main.build_payload_fields()
         today.assert_called_once_with("Asia/Shanghai")
+
+    def test_paired_payload_rejects_wrong_claim_before_weather_or_line_generation(self) -> None:
+        with (
+            patch.dict(os.environ, {**PAIRED_ENV, "DAILY_CLAIM_DATE": "2026-09-18"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 17)),
+            patch.object(main, "brief_weather") as weather,
+            patch.object(main, "generate_love_line") as generate,
+        ):
+            with self.assertRaises(main.ConfigError):
+                main.build_payload_fields()
+        weather.assert_not_called()
+        generate.assert_not_called()
 
     def test_paired_live_stops_when_shanghai_day_changes_before_send(self) -> None:
         with (

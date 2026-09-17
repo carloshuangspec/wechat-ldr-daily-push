@@ -51,12 +51,12 @@ def validate_send_context(mode: str, slot: str) -> None:
     if os.getenv("GITHUB_ACTIONS") != "true":
         raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
     if recipient == "both":
-        claimed_day = _env("DAILY_CLAIM_DATE")
+        claimed_day = os.getenv("DAILY_CLAIM_DATE")
         if (
-            _env("DAILY_CLAIM_CREATED") != "true"
+            os.getenv("DAILY_CLAIM_CREATED") != "true"
             or claimed_day != local_today("Asia/Shanghai").isoformat()
-            or _env("ENABLE_CN_DAILY") != "1"
-            or _env("ENABLE_SELF_DAILY") != "1"
+            or os.getenv("ENABLE_CN_DAILY") != "1"
+            or os.getenv("ENABLE_SELF_DAILY") != "1"
         ):
             raise ConfigError("双人真发 claim 或开关不符合门禁")
         if os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch":
@@ -70,7 +70,7 @@ def validate_send_context(mode: str, slot: str) -> None:
                 "LIVE_DISPATCH_SLOT": "both",
                 "LIVE_DISPATCH_DATE": claimed_day,
             }
-            if any(_env(name) != value for name, value in expected_dispatch.items()):
+            if any(os.getenv(name) != value for name, value in expected_dispatch.items()):
                 raise ConfigError("双人手动真发上下文不符合门禁")
             return
     if os.getenv("GITHUB_EVENT_NAME") == "schedule":
@@ -174,7 +174,7 @@ def build_payload_fields() -> dict[str, str]:
     if (
         paired_delivery
         and _env("SEND_MODE", "dry-run").lower() == "live"
-        and today.isoformat() != _env("DAILY_CLAIM_DATE")
+        and today.isoformat() != os.getenv("DAILY_CLAIM_DATE")
     ):
         raise ConfigError("双人真发 claim 日期不符合 Shanghai 当日")
     known_days = love_days(known_start, today=today)
@@ -270,7 +270,7 @@ def main() -> int:
         if (
             mode == "live"
             and os.getenv("LIVE_RECIPIENT") == "both"
-            and local_today("Asia/Shanghai").isoformat() != _env("DAILY_CLAIM_DATE")
+            and local_today("Asia/Shanghai").isoformat() != os.getenv("DAILY_CLAIM_DATE")
         ):
             raise ConfigError("双人真发日期已变化，已停止发送")
     except ConfigError as exc:
