@@ -1,12 +1,10 @@
-# 阶段 C：CN 定时真发默认关闭；手动测试与预览保持独立。
+# 阶段 C：同一上海定时事件的两端真发各有独立开关；手动测试与预览保持独立。
 name: daily-push
 
 "on":
   schedule:
-    - cron: "7 8 * * *"
+    - cron: "0 9 * * *"
       timezone: "Asia/Shanghai"
-    - cron: "13 8 * * *"
-      timezone: "America/Detroit"
   workflow_dispatch:
     inputs:
       mode:
@@ -128,11 +126,11 @@ jobs:
           esac
 
   preview-cn:
-    name: Preview CN (Asia/Shanghai ~08:07)
+    name: Preview CN (Asia/Shanghai ~09:00)
     needs: validate-dispatch
     if: >
       needs.validate-dispatch.result == 'success' &&
-      ((github.event_name == 'schedule' && github.event.schedule == '7 8 * * *' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '0 9 * * *' &&
         vars.ENABLE_CN_DAILY != '1') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
         (inputs.slot == 'cn' || inputs.slot == 'both')))
@@ -173,11 +171,12 @@ jobs:
           python src/main.py
 
   preview-us:
-    name: Preview US (America/Detroit ~08:13)
+    name: Preview SELF (Asia/Shanghai ~09:00)
     needs: validate-dispatch
     if: >
       needs.validate-dispatch.result == 'success' &&
-      ((github.event_name == 'schedule' && github.event.schedule == '13 8 * * *') ||
+      ((github.event_name == 'schedule' && github.event.schedule == '0 9 * * *' &&
+        vars.ENABLE_SELF_DAILY != '1') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
         (inputs.slot == 'us' || inputs.slot == 'both')))
     runs-on: ubuntu-latest
@@ -328,7 +327,7 @@ jobs:
     if: >
       needs.validate-dispatch.result == 'success' &&
       github.event_name == 'schedule' &&
-      github.event.schedule == '7 8 * * *' &&
+      github.event.schedule == '0 9 * * *' &&
       vars.ENABLE_CN_DAILY == '1' &&
       github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
       github.ref == 'refs/heads/main' &&
@@ -368,6 +367,58 @@ jobs:
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
           WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}
+        run: |
+          export CITY_A="${CITY_A:-Ann Arbor}"
+          export CITY_B="${CITY_B:-Shanghai}"
+          export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
+          export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
+          python src/main.py
+
+  scheduled-self:
+    name: LIVE SELF schedule (disabled unless explicitly enabled)
+    needs: validate-dispatch
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      github.event_name == 'schedule' &&
+      github.event.schedule == '0 9 * * *' &&
+      vars.ENABLE_SELF_DAILY == '1' &&
+      github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests without live credentials
+        run: python -m unittest discover -s tests -v
+      - name: Send scheduled SELF
+        env:
+          PUSH_SLOT: us
+          SEND_MODE: live
+          LIVE_RECIPIENT: self
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}
+          CITY_A: ${{ vars.CITY_A }}
+          CITY_B: ${{ vars.CITY_B }}
+          CITY_A_TZ: ${{ vars.CITY_A_TZ }}
+          CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
+          LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
+          NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
+          QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
+          QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+          WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
+          WECHAT_OPENID_SELF: ${{ secrets.WECHAT_OPENID_SELF }}
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
           export CITY_B="${CITY_B:-Shanghai}"

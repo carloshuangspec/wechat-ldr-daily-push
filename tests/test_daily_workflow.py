@@ -19,9 +19,10 @@ class DailyWorkflowTests(unittest.TestCase):
                 ("preview-us", "live-self"),
                 ("live-self", "live-cn"),
                 ("live-cn", "scheduled-cn"),
+                ("scheduled-cn", "scheduled-self"),
             )
         }
-        cls.jobs["scheduled-cn"] = text.split("  scheduled-cn:\n", 1)[1]
+        cls.jobs["scheduled-self"] = text.split("  scheduled-self:\n", 1)[1]
 
     def test_daily_config_only_loads_in_cn_message_steps(self) -> None:
         for name, job in self.jobs.items():
@@ -42,6 +43,8 @@ class DailyWorkflowTests(unittest.TestCase):
     def test_cn_scheduled_preview_is_skipped_when_daily_live_enabled(self) -> None:
         self.assertIn("vars.ENABLE_CN_DAILY != '1'", self.jobs["preview-cn"])
         self.assertIn("vars.ENABLE_CN_DAILY == '1'", self.jobs["scheduled-cn"])
+        self.assertIn("vars.ENABLE_SELF_DAILY != '1'", self.jobs["preview-us"])
+        self.assertIn("vars.ENABLE_SELF_DAILY == '1'", self.jobs["scheduled-self"])
 
     def test_live_owner_first_run_and_recipient_separation_stay_intact(self) -> None:
         for name, confirmation, slot in (
@@ -58,6 +61,8 @@ class DailyWorkflowTests(unittest.TestCase):
             self.assertNotIn("WECHAT_APP_SECRET:", self.jobs[name])
         self.assertNotIn("WECHAT_OPENID_CN:", self.jobs["live-self"])
         self.assertNotIn("WECHAT_OPENID_SELF:", self.jobs["live-cn"])
+        self.assertNotIn("WECHAT_OPENID_CN:", self.jobs["scheduled-self"])
+        self.assertNotIn("WECHAT_OPENID_SELF:", self.jobs["scheduled-cn"])
 
 
 if __name__ == "__main__":

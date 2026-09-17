@@ -31,7 +31,7 @@ def resolve_send_mode() -> str:
 
 
 def validate_send_context(mode: str, slot: str) -> None:
-    """真发仅允许独立的手动确认或明确启用的 CN 定时上下文。"""
+    """真发仅允许独立的手动确认或对应收件人已启用的定时上下文。"""
     if slot not in {"cn", "us"}:
         raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
     if mode != "live":
@@ -46,21 +46,20 @@ def validate_send_context(mode: str, slot: str) -> None:
     expected_slot, expected_confirmation = allowed[recipient]
     if slot != expected_slot:
         raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
-    # 防误操作门禁：定时 CN 与受控手动发送的条件彼此独立。
+    # 防误操作门禁：定时发送与受控手动发送的条件彼此独立。
     if os.getenv("GITHUB_ACTIONS") != "true":
         raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
     if os.getenv("GITHUB_EVENT_NAME") == "schedule":
+        enabled_flag = {"cn": "ENABLE_CN_DAILY", "self": "ENABLE_SELF_DAILY"}[recipient]
         expected_schedule = {
-            "GITHUB_EVENT_SCHEDULE": "7 8 * * *",
-            "ENABLE_CN_DAILY": "1",
+            "GITHUB_EVENT_SCHEDULE": "0 9 * * *",
+            enabled_flag: "1",
             "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
             "GITHUB_REF": "refs/heads/main",
             "GITHUB_RUN_ATTEMPT": "1",
         }
-        if recipient != "cn" or any(
-            os.getenv(name) != value for name, value in expected_schedule.items()
-        ):
-            raise ConfigError("CN 定时真发上下文不符合门禁")
+        if any(os.getenv(name) != value for name, value in expected_schedule.items()):
+            raise ConfigError("定时真发上下文不符合门禁")
         return
 
     if os.getenv("LIVE_CONFIRMATION") != expected_confirmation:
@@ -157,13 +156,22 @@ def build_payload_fields() -> dict[str, str]:
         raise ConfigError("Love line exceeds template limit")
 
     ld = love_days(love_start, today=today)
+    time_a = local_now_str(tz_a)
+    time_b = local_now_str(tz_b)
+    recipient_hour = int((time_b if slot == "cn" else time_a).split(":", 1)[0])
+    if 5 <= recipient_hour < 12:
+        greeting = "Good morning, love!"
+    elif 12 <= recipient_hour < 18:
+        greeting = "Afternoon, love!"
+    else:
+        greeting = "Good evening, love!"
     fields = {
-        "greeting": "Good morning, love!",
+        "greeting": greeting,
         "city_a": city_a,
-        "time_a": local_now_str(tz_a),
+        "time_a": time_a,
         "weather_a": weather_a,
         "city_b": city_b,
-        "time_b": local_now_str(tz_b),
+        "time_b": time_b,
         "weather_b": weather_b,
         "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
         "meet_days": f"{meet_status(next_meet, today=today)} | {short_line}",

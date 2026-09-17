@@ -39,7 +39,7 @@ SCHEDULED_CN_ENV = {
     "LIVE_RECIPIENT": "cn",
     "GITHUB_ACTIONS": "true",
     "GITHUB_EVENT_NAME": "schedule",
-    "GITHUB_EVENT_SCHEDULE": "7 8 * * *",
+    "GITHUB_EVENT_SCHEDULE": "0 9 * * *",
     "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
     "GITHUB_REF": "refs/heads/main",
     "GITHUB_RUN_ATTEMPT": "1",
@@ -1174,16 +1174,16 @@ class DocumentationTests(unittest.TestCase):
             ),
         )
 
-    def test_daily_cn_documentation_keeps_flag_off_until_phone_receipts(self) -> None:
+    def test_daily_documentation_separates_recipient_gates(self) -> None:
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("`ENABLE_CN_DAILY`", readme)
+        self.assertIn("`ENABLE_SELF_DAILY`", readme)
         self.assertIn("`1`", readme)
-        self.assertIn("两部手机", readme)
-        self.assertIn("本人手机已确认收到", readme)
+        self.assertIn("本人手机已确认修复后的英文情话显示", readme)
         self.assertIn("女友手机尚未确认", readme)
-        self.assertIn("约 08:07", readme)
+        self.assertIn("约 09:00", readme)
         self.assertIn("关闭", readme)
 
 
@@ -1198,12 +1198,11 @@ class WorkflowPolicyTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_timezone_schedules_and_matching_conditions(self) -> None:
-        self.assertIn('cron: "7 8 * * *"', self.workflow)
+        self.assertIn('cron: "0 9 * * *"', self.workflow)
         self.assertIn('timezone: "Asia/Shanghai"', self.workflow)
-        self.assertIn("github.event.schedule == '7 8 * * *'", self.workflow)
-        self.assertIn('cron: "13 8 * * *"', self.workflow)
-        self.assertIn('timezone: "America/Detroit"', self.workflow)
-        self.assertIn("github.event.schedule == '13 8 * * *'", self.workflow)
+        self.assertEqual(self.workflow.count('    - cron: "0 9 * * *"'), 1)
+        self.assertNotIn('timezone: "America/Detroit"', self.workflow)
+        self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 4)
 
     def test_stage_c_manual_gate_is_exact(self) -> None:
         self.assertIn('[ "$REQUEST_SLOT" != "cn" ]', self.workflow)
@@ -1218,8 +1217,8 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
         self.assertIn('REQUEST_REF: ${{ github.ref }}', self.workflow)
         self.assertIn('REQUEST_ATTEMPT: ${{ github.run_attempt }}', self.workflow)
-        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 3)
-        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 3)
+        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 4)
+        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 4)
 
     def test_preview_jobs_have_no_wechat_credentials(self) -> None:
         self.assertIn("  live-self:", self.workflow)
@@ -1239,7 +1238,7 @@ class WorkflowPolicyTests(unittest.TestCase):
             self.assertNotIn("SEND_MODE: ${{", job)
 
     def test_deepseek_is_available_in_each_message_job(self) -> None:
-        self.assertEqual(self.workflow.count("DEEPSEEK_API_KEY:"), 5)
+        self.assertEqual(self.workflow.count("DEEPSEEK_API_KEY:"), 6)
         self.assertNotIn("GEMINI_API_KEY:", self.workflow)
 
     def test_manual_live_jobs_are_isolated_by_recipient_and_event(self) -> None:
@@ -1282,22 +1281,22 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertNotIn("WECHAT_OPENID_CN:", self_job)
         self.assertIn("WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}", cn_job)
         self.assertNotIn("WECHAT_OPENID_SELF:", cn_job)
-        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 3)
-        self.assertEqual(self.workflow.count("WECHAT_OPENID_SELF:"), 1)
+        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 4)
+        self.assertEqual(self.workflow.count("WECHAT_OPENID_SELF:"), 2)
         self.assertEqual(self.workflow.count("WECHAT_OPENID_CN:"), 2)
         self.assertNotIn("WECHAT_OPENID_US:", self.workflow)
-        self.assertEqual(self.workflow.count("SEND_MODE: live"), 3)
+        self.assertEqual(self.workflow.count("SEND_MODE: live"), 4)
         self.assertNotIn("DRY_RUN:", self.workflow)
         self.assertNotIn("vars.DRY_RUN", self.workflow)
 
     def test_scheduled_cn_job_is_exact_and_uses_only_cn_credentials(self) -> None:
         self.assertIn("  scheduled-cn:", self.workflow)
-        job = self.workflow.split("  scheduled-cn:", 1)[1]
+        job = self.workflow.split("  scheduled-cn:", 1)[1].split("  scheduled-self:", 1)[0]
         for fragment in (
             "needs: validate-dispatch",
             "needs.validate-dispatch.result == 'success'",
             "github.event_name == 'schedule'",
-            "github.event.schedule == '7 8 * * *'",
+            "github.event.schedule == '0 9 * * *'",
             "vars.ENABLE_CN_DAILY == '1'",
             "github.repository == 'carloshuangspec/wechat-ldr-daily-push'",
             "github.ref == 'refs/heads/main'",
@@ -1324,12 +1323,12 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_known_start_date_reaches_every_message_job(self) -> None:
         self.assertEqual(
-            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 5
+            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 6
         )
 
     def test_workflow_uses_current_node24_actions_and_fixed_concurrency(self) -> None:
-        self.assertEqual(self.workflow.count("actions/checkout@v7"), 5)
-        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 5)
+        self.assertEqual(self.workflow.count("actions/checkout@v7"), 6)
+        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 6)
         self.assertIn("group: wechat-ldr-daily-push-stage-c", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
 
