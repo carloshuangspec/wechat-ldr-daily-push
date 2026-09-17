@@ -1184,7 +1184,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("本人手机已确认修复后的英文情话显示", readme)
         self.assertIn("女友手机尚未确认", readme)
         self.assertIn("上海 09:00", readme)
-        self.assertIn("`scheduled-both`", readme)
+        self.assertIn("`daily-both`", readme)
         self.assertIn("关闭", readme)
 
 
@@ -1203,7 +1203,7 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIn('timezone: "Asia/Shanghai"', self.workflow)
         self.assertEqual(self.workflow.count('    - cron: "0 9 * * *"'), 1)
         self.assertNotIn('timezone: "America/Detroit"', self.workflow)
-        self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 5)
+        self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 6)
 
     def test_stage_c_manual_gate_is_exact(self) -> None:
         self.assertIn('[ "$REQUEST_SLOT" != "cn" ]', self.workflow)
@@ -1218,8 +1218,11 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
         self.assertIn('REQUEST_REF: ${{ github.ref }}', self.workflow)
         self.assertIn('REQUEST_ATTEMPT: ${{ github.run_attempt }}', self.workflow)
-        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 5)
-        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 5)
+        self.assertIn("          - daily-both", self.workflow)
+        self.assertIn('REQUEST_DELIVERY_DATE: ${{ inputs.delivery_date }}', self.workflow)
+        self.assertIn('daily-both requires slot=both, blank confirmation, and today in Shanghai.', self.workflow)
+        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 6)
+        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 6)
 
     def test_preview_jobs_have_no_wechat_credentials(self) -> None:
         self.assertIn("  live-self:", self.workflow)
@@ -1331,8 +1334,8 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
 
     def test_workflow_uses_current_node24_actions_and_fixed_concurrency(self) -> None:
-        self.assertEqual(self.workflow.count("actions/checkout@v7"), 8)
-        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 8)
+        self.assertEqual(self.workflow.count("actions/checkout@v7"), 9)
+        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 9)
         self.assertIn("group: wechat-ldr-daily-push-stage-c", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
 

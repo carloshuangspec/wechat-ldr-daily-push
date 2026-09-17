@@ -21,21 +21,24 @@ class DailyWorkflowTests(unittest.TestCase):
                 ("live-self", "live-cn"),
                 ("live-cn", "scheduled-cn"),
                 ("scheduled-cn", "scheduled-self"),
-                ("scheduled-self", "scheduled-both"),
+                ("scheduled-self", "claim-daily"),
+                ("claim-daily", "daily-both"),
             )
         }
-        cls.jobs["scheduled-both"] = text.split("  scheduled-both:\n", 1)[1]
+        cls.jobs["daily-both"] = text.split("  daily-both:\n", 1)[1]
 
     def test_daily_config_only_loads_in_cn_message_steps(self) -> None:
         for name, job in self.jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
                     job.count("DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}"),
-                    1 if name in {"preview-cn", "preview-both", "live-cn", "scheduled-cn", "scheduled-both"} else 0,
+                    1 if name in {"preview-cn", "preview-both", "live-cn", "scheduled-cn", "daily-both"} else 0,
                 )
 
     def test_all_message_steps_use_only_deepseek_key(self) -> None:
         for name, job in self.jobs.items():
+            if name == "claim-daily":
+                continue
             with self.subTest(job=name):
                 self.assertEqual(
                     job.count("DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}"), 1
@@ -49,8 +52,8 @@ class DailyWorkflowTests(unittest.TestCase):
         self.assertIn("vars.ENABLE_SELF_DAILY != '1'", self.jobs["preview-us"])
         self.assertIn("vars.ENABLE_SELF_DAILY == '1'", self.jobs["scheduled-self"])
         self.assertIn("vars.ENABLE_CN_DAILY != '1'", self.jobs["scheduled-self"])
-        self.assertIn("vars.ENABLE_CN_DAILY == '1'", self.jobs["scheduled-both"])
-        self.assertIn("vars.ENABLE_SELF_DAILY == '1'", self.jobs["scheduled-both"])
+        self.assertIn("vars.ENABLE_CN_DAILY == '1'", self.jobs["daily-both"])
+        self.assertIn("vars.ENABLE_SELF_DAILY == '1'", self.jobs["daily-both"])
 
     def test_live_owner_first_run_and_recipient_separation_stay_intact(self) -> None:
         for name, confirmation, slot in (

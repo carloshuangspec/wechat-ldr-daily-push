@@ -2,7 +2,7 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动真发仍分别受控；双端每日开关同时开启时，上海 09:00 的一次定时任务组装同一份内容并依次发送给两人。首次双端定时运行、两部手机收到及内容一致性仍待验收。
+当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动真发仍分别受控；双端每日开关同时开启时，上海 09:00 的一次定时任务组装同一份内容并依次发送给两人。首次双端定时运行、两部手机收到及内容一致性仍待验收。现已**分阶段提供** `daily-both` 手动入口；Grok 尚未启用或接管任何发送，原有上海 09:00 定时路径仍保持开启。
 
 ## 安全运行模式
 
@@ -47,9 +47,10 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 - 安全预览：选择 `mode=preview`；`slot=cn` 或 `us` 查看单人内容，`slot=both` 查看单次生成的双端共用内容，无需 confirmation。
 - 本人测试：选择 `mode=live-self`、`slot=us`，并在 confirmation 精确输入 `SEND_SELF_ONCE`。该 job 只能使用 `WECHAT_OPENID_SELF`，不能读取 CN 收件人的 OpenID。
 - 女友测试：选择 `mode=live-cn`、`slot=cn`，并在 confirmation 精确输入 `SEND_CN_ONCE`。该 job 只能使用 `WECHAT_OPENID_CN`，不能读取本人的 OpenID。
+- 双端每日：仅在两个每日开关都精确为 `1` 时，可选择 `mode=daily-both`、`slot=both`、空 confirmation，并将 `delivery_date` 精确填为当天上海日期 `YYYY-MM-DD`。门禁会同时校验仓库、`main`、发起人与首次 run；先由唯一拥有 `contents: write` 权限的 claim job 为该上海日期创建 Git ref，再允许只读的 `daily-both` sender 运行。claim job 不读取微信或 DeepSeek 配置；sender 没有 GitHub 写 token。Git ref 已存在、任何值不匹配或 Re-run 都不会发送，也不会自动重试。
 - 两条真发路径都限制为本仓库 `main` 分支、仓库所有者首次执行的手动 run；对该 run 点 Re-run 会被拒绝。槽位、短语、仓库、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行；定时事件也不能进入它们。
 
-阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` / `preview-both` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。双开关均为 `1` 时只有 `scheduled-both` 真发，两个单人定时 job 不运行；恰好一个开关为 `1` 时只有对应的 `scheduled-self` 或 `scheduled-cn` 真发，另一人保持自动预览；两者都关闭时只做自动预览。手动预览始终可用。手动 `live-self` / `live-cn` 与单人定时 job 只加载各自 OpenID；`scheduled-both` 的发送步骤须加载并校验两个不同的 OpenID，再组装一次内容并依次发送。所有真发 job 在发送步骤前运行单元测试。
+阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` / `preview-both` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。双开关均为 `1` 时只有 `daily-both` 真发，两个单人定时 job 不运行；它同时服务原上海 09:00 schedule 和受控的 `daily-both` dispatch，且必须先取得日期 claim。恰好一个开关为 `1` 时只有对应的 `scheduled-self` 或 `scheduled-cn` 真发，另一人保持自动预览；两者都关闭时只做自动预览。手动预览始终可用。手动 `live-self` / `live-cn` 与单人定时 job 只加载各自 OpenID；`daily-both` 的发送步骤须加载并校验两个不同的 OpenID，再组装一次内容并依次发送。所有真发 job 在发送步骤前运行单元测试。
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。双端真发是两次顺序调用微信接口，并非原子事务或两部手机同时送达；第一人成功而第二人失败时，日志应保留第一人的脱敏接受状态，不盲目重试整个任务，以免重复发送。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认先前手动测试，CN 手机与首次双端定时运行尚未确认。若发现收件人或内容错误，应立即关闭对应的每日开关并排查，不自动重发。
 
@@ -71,8 +72,8 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `WECHAT_APP_ID` | Actions Secret | 微信测试号 appID |
 | `WECHAT_APP_SECRET` | Actions Secret | 微信测试号 appsecret |
 | `WECHAT_TEMPLATE_ID` | Actions Secret | 模板 ID |
-| `WECHAT_OPENID_SELF` | Actions Secret | Carlos 本人的 US 槽位 openid，`live-self` / `scheduled-self` / `scheduled-both` 读取 |
-| `WECHAT_OPENID_CN` | Actions Secret | 女友的 CN 槽位 openid，`live-cn` / `scheduled-cn` / `scheduled-both` 读取 |
+| `WECHAT_OPENID_SELF` | Actions Secret | Carlos 本人的 US 槽位 openid，`live-self` / `scheduled-self` / `daily-both` 读取 |
+| `WECHAT_OPENID_CN` | Actions Secret | 女友的 CN 槽位 openid，`live-cn` / `scheduled-cn` / `daily-both` 读取 |
 
 短句默认运行必填；CN 单人或双端共用路径当天有有效 `exact` 时可跳过 API：
 
@@ -149,7 +150,7 @@ GitHub Actions schedule 使用 IANA 时区；每天的唯一触发时间配置�
 
 | 每日开关 | Job | 阶段 C 行为 |
 |----------|-----|-------------|
-| 两个都为 `1` | `scheduled-both` | 上海日期的一份内容，依次发给女友和本人；单人定时 job 不运行 |
+| 两个都为 `1` | `claim-daily` → `daily-both` | 上海日期的一份内容，先创建不可重复的 claim，再依次发给女友和本人；单人定时 job 不运行 |
 | 仅本人为 `1` | `scheduled-self` + `preview-cn` | 只给本人真发，女友只预览 |
 | 仅女友为 `1` | `scheduled-cn` + `preview-us` | 只给女友真发，本人只预览 |
 | 两个均未开启 | `preview-cn` + `preview-us` | 不发微信，只分别预览 |

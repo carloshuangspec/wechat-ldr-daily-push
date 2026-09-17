@@ -8,7 +8,7 @@ name: daily-push
   workflow_dispatch:
     inputs:
       mode:
-        description: "preview（仅预览）/ live-self（US 自测）/ live-cn（CN 测试）"
+        description: "preview（仅预览）/ live-self（US 自测）/ live-cn（CN 测试）/ daily-both（双端每日）"
         required: true
         default: preview
         type: choice
@@ -16,6 +16,7 @@ name: daily-push
           - preview
           - live-self
           - live-cn
+          - daily-both
       slot:
         description: "预览槽位；live-self 只允许 us，live-cn 只允许 cn"
         required: true
@@ -27,6 +28,11 @@ name: daily-push
           - both
       confirmation:
         description: "live-self: SEND_SELF_ONCE；live-cn: SEND_CN_ONCE"
+        required: false
+        default: ""
+        type: string
+      delivery_date:
+        description: "daily-both 的上海日期（YYYY-MM-DD；留空不会通过门禁）"
         required: false
         default: ""
         type: string
@@ -51,11 +57,14 @@ jobs:
           REQUEST_MODE: ${{ inputs.mode }}
           REQUEST_SLOT: ${{ inputs.slot }}
           REQUEST_CONFIRMATION: ${{ inputs.confirmation }}
+          REQUEST_DELIVERY_DATE: ${{ inputs.delivery_date }}
           REQUEST_REPOSITORY: ${{ github.repository }}
           REQUEST_REF: ${{ github.ref }}
           REQUEST_ACTOR: ${{ github.actor }}
           REQUEST_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           REQUEST_ATTEMPT: ${{ github.run_attempt }}
+          ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}
+          ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}
         run: |
           set -euo pipefail
 
@@ -116,6 +125,28 @@ jobs:
               fi
               if [ "$REQUEST_ATTEMPT" != "1" ]; then
                 echo "::error::Re-running a live-cn workflow is not allowed."
+                exit 1
+              fi
+              ;;
+            daily-both)
+              if [ "$REQUEST_SLOT" != "both" ] || [ "$REQUEST_CONFIRMATION" != "" ] || [ "$REQUEST_DELIVERY_DATE" != "$(TZ=Asia/Shanghai date +%F)" ]; then
+                echo "::error::daily-both requires slot=both, blank confirmation, and today in Shanghai."
+                exit 1
+              fi
+              if [ "$REQUEST_REPOSITORY" != "carloshuangspec/wechat-ldr-daily-push" ] || [ "$REQUEST_REF" != "refs/heads/main" ]; then
+                echo "::error::daily-both is restricted to the canonical repository main branch."
+                exit 1
+              fi
+              if [ "$REQUEST_ACTOR" != "carloshuangspec" ] || [ "$REQUEST_TRIGGERING_ACTOR" != "carloshuangspec" ]; then
+                echo "::error::daily-both is restricted to the repository owner."
+                exit 1
+              fi
+              if [ "$REQUEST_ATTEMPT" != "1" ]; then
+                echo "::error::Re-running a daily-both workflow is not allowed."
+                exit 1
+              fi
+              if [ "${ENABLE_CN_DAILY:-}" != "1" ] || [ "${ENABLE_SELF_DAILY:-}" != "1" ]; then
+                echo "::error::daily-both requires both daily delivery flags."
                 exit 1
               fi
               ;;
@@ -474,20 +505,63 @@ jobs:
           export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
           python src/main.py
 
-  scheduled-both:
-    name: LIVE Both schedule (one shared message)
+  claim-daily:
+    name: Claim Shanghai daily delivery
     needs: validate-dispatch
     if: >
       needs.validate-dispatch.result == 'success' &&
-      github.event_name == 'schedule' &&
-      github.event.schedule == '0 9 * * *' &&
       vars.ENABLE_CN_DAILY == '1' &&
       vars.ENABLE_SELF_DAILY == '1' &&
       github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
       github.ref == 'refs/heads/main' &&
-      github.run_attempt == '1'
+      github.run_attempt == '1' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') ||
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'daily-both' &&
+        inputs.slot == 'both' && inputs.confirmation == '' &&
+        github.actor == 'carloshuangspec' && github.triggering_actor == 'carloshuangspec'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: write
+    outputs:
+      claimed: ${{ steps.claim.outputs.claimed }}
+      day: ${{ steps.claim.outputs.day }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install claim dependency
+        run: pip install requests
+      - name: Claim delivery day
+        id: claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELIVERY_DATE: ${{ inputs.delivery_date }}
+        run: python src/daily_claim.py
+
+  daily-both:
+    name: LIVE Both (one shared message)
+    needs: [validate-dispatch, claim-daily]
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      needs.claim-daily.result == 'success' &&
+      needs.claim-daily.outputs.claimed == 'true' &&
+      vars.ENABLE_CN_DAILY == '1' &&
+      vars.ENABLE_SELF_DAILY == '1' &&
+      github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == '1' &&
+      ((github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') ||
+       (github.event_name == 'workflow_dispatch' && inputs.mode == 'daily-both' &&
+        inputs.slot == 'both' && inputs.confirmation == '' &&
+        github.actor == 'carloshuangspec' && github.triggering_actor == 'carloshuangspec'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -505,6 +579,11 @@ jobs:
           SEND_MODE: live
           LIVE_RECIPIENT: both
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DAILY_CLAIM_CREATED: ${{ needs.claim-daily.outputs.claimed }}
+          DAILY_CLAIM_DATE: ${{ needs.claim-daily.outputs.day }}
+          LIVE_DISPATCH_MODE: ${{ inputs.mode }}
+          LIVE_DISPATCH_SLOT: ${{ inputs.slot }}
+          LIVE_DISPATCH_DATE: ${{ inputs.delivery_date }}
           ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}
           ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}
           CITY_A: ${{ vars.CITY_A }}

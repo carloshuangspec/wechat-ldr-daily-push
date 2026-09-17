@@ -129,7 +129,7 @@ class DailyScheduleTests(unittest.TestCase):
         self.assertIn('timezone: "Asia/Shanghai"', schedule)
         self.assertNotIn('America/Detroit', schedule)
         self.assertIn("  scheduled-self:", workflow)
-        job = workflow.split("  scheduled-self:\n", 1)[1].split("  scheduled-both:\n", 1)[0]
+        job = workflow.split("  scheduled-self:\n", 1)[1].split("  claim-daily:\n", 1)[0]
         for fragment in (
             "github.event_name == 'schedule'",
             "github.event.schedule == '0 9 * * *'",

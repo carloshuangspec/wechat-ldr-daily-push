@@ -57,10 +57,12 @@ class PairedDeliveryTests(unittest.TestCase):
     def test_workflow_routes_both_switches_to_only_one_paired_job(self) -> None:
         workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
         self.assertEqual(workflow.count('cron: "0 9 * * *"'), 1)
-        self.assertIn("  scheduled-both:\n", workflow)
+        self.assertIn("  claim-daily:\n", workflow)
+        self.assertIn("  daily-both:\n", workflow)
         cn_job = workflow.split("  scheduled-cn:\n", 1)[1].split("  scheduled-self:\n", 1)[0]
-        self_job = workflow.split("  scheduled-self:\n", 1)[1].split("  scheduled-both:\n", 1)[0]
-        both_job = workflow.split("  scheduled-both:\n", 1)[1]
+        self_job = workflow.split("  scheduled-self:\n", 1)[1].split("  claim-daily:\n", 1)[0]
+        claim_job = workflow.split("  claim-daily:\n", 1)[1].split("  daily-both:\n", 1)[0]
+        both_job = workflow.split("  daily-both:\n", 1)[1]
         self.assertIn("vars.ENABLE_SELF_DAILY != '1'", cn_job)
         self.assertIn("vars.ENABLE_CN_DAILY != '1'", self_job)
         for role, job in (("CN", cn_job), ("SELF", self_job)):
@@ -68,6 +70,12 @@ class PairedDeliveryTests(unittest.TestCase):
         for fragment in (
             "github.event_name == 'schedule'",
             "github.event.schedule == '0 9 * * *'",
+            "github.event_name == 'workflow_dispatch'",
+            "inputs.mode == 'daily-both'",
+            "inputs.slot == 'both'",
+            "inputs.confirmation == ''",
+            "github.actor == 'carloshuangspec'",
+            "github.triggering_actor == 'carloshuangspec'",
             "vars.ENABLE_CN_DAILY == '1'",
             "vars.ENABLE_SELF_DAILY == '1'",
             "github.repository == 'carloshuangspec/wechat-ldr-daily-push'",
@@ -78,12 +86,51 @@ class PairedDeliveryTests(unittest.TestCase):
             "LIVE_RECIPIENT: both",
             "ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}",
             "ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}",
+            "DAILY_CLAIM_CREATED: ${{ needs.claim-daily.outputs.claimed }}",
+            "DAILY_CLAIM_DATE: ${{ needs.claim-daily.outputs.day }}",
+            "LIVE_DISPATCH_MODE: ${{ inputs.mode }}",
+            "LIVE_DISPATCH_SLOT: ${{ inputs.slot }}",
+            "LIVE_DISPATCH_DATE: ${{ inputs.delivery_date }}",
             "WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}",
             "WECHAT_OPENID_SELF: ${{ secrets.WECHAT_OPENID_SELF }}",
             "DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}",
             "python -m unittest discover -s tests -v",
         ):
             self.assertIn(fragment, both_job)
+        self.assertIn("needs: [validate-dispatch, claim-daily]", both_job)
+        self.assertIn("needs.claim-daily.result == 'success'", both_job)
+        self.assertIn("needs.claim-daily.outputs.claimed == 'true'", both_job)
+        self.assertIn("permissions:\n      contents: read", both_job)
+        self.assertNotIn("GH_TOKEN:", both_job)
+        self.assertNotIn("WECHAT_", claim_job)
+        self.assertNotIn("DEEPSEEK_API_KEY", claim_job)
+        self.assertNotIn("DAILY_MESSAGE_CONFIG", claim_job)
+
+    def test_daily_both_dispatch_claim_is_isolated_and_precedes_only_paired_sender(self) -> None:
+        workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
+        claim_job = workflow.split("  claim-daily:\n", 1)[1].split("  daily-both:\n", 1)[0]
+        sender = workflow.split("  daily-both:\n", 1)[1]
+        self.assertEqual(workflow.count("  daily-both:\n"), 1)
+        self.assertLess(workflow.index("  claim-daily:\n"), workflow.index("  daily-both:\n"))
+        for fragment in (
+            "needs: validate-dispatch",
+            "permissions:\n      contents: write",
+            "outputs:",
+            "claimed: ${{ steps.claim.outputs.claimed }}",
+            "day: ${{ steps.claim.outputs.day }}",
+            "id: claim",
+            "GH_TOKEN: ${{ github.token }}",
+            "DELIVERY_DATE: ${{ inputs.delivery_date }}",
+            "python src/daily_claim.py",
+            "github.event.schedule == '0 9 * * *'",
+            "inputs.mode == 'daily-both'",
+            "inputs.slot == 'both'",
+            "inputs.confirmation == ''",
+            "github.run_attempt == '1'",
+        ):
+            self.assertIn(fragment, claim_job)
+        self.assertNotIn("retry", claim_job.lower())
+        self.assertNotIn("GH_TOKEN:", sender)
 
     def test_both_preview_is_one_credential_free_job(self) -> None:
         workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
