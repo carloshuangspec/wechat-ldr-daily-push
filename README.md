@@ -2,7 +2,7 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动任务默认预览；同一个上海 09:00 定时事件下有两条独立的真发路径。SELF 每日开关已开启，仍待首次定时实际运行验收；CN 每日开关须等女友手机确认新版本的实际内容后另行开启。
+当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动任务默认预览；同一个上海 09:00 定时事件下有两条独立的真发路径。Carlos 本轮明确要求两端同步日推，SELF 与 CN 的每日开关现均已开启；首次定时运行及两部手机的实际内容仍待验收。
 
 ## 安全运行模式
 
@@ -49,7 +49,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。每位收件人启用定时真发后，只有其对应的自动预览被跳过；手动预览仍可用。手动 `live-self` / `live-cn` 与定时 `scheduled-self` / `scheduled-cn` 均只加载各自的收件人 OpenID；定时任务分别要求对应的 `ENABLE_SELF_DAILY=1` / `ENABLE_CN_DAILY=1`。四个真发 job 都只在各自的发送步骤加载对应 OpenID 与共用的三个微信 Secrets，并先运行单元测试。
 
-`SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认，但仍需 CN 收件人确认收到，并核对消息、换行和天气来源，然后才决定是否开启定时 CN。若发现问题先排查，不自动重发。
+`SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认先前手动测试，CN 手机与首次定时运行尚未确认。若发现收件人或内容错误，应立即关闭对应的每日开关并排查，不自动重发。
 
 若手机收到了消息却看不到英文情话，先手动运行独立的 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，则只表示接口检查未完成，不能据此推断模板字段缺失。模板含有字段也不能保证微信客户端卡片将它显示出来。当前观察到的测试号卡片只显示双城天气、Together 和 Next meeting；程序因此将同一句英文情话也附在 Next meeting 行中，仍须在手机上确认最终呈现。不要盲目重发。
 
@@ -89,7 +89,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
 
-每日发送使用两个独立的 Actions Variable 开关：`ENABLE_SELF_DAILY` 控制本人、`ENABLE_CN_DAILY` 控制女友；**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。本人手机已确认收到修复后的情话，`ENABLE_SELF_DAILY` 已设置为 `1`；女友手机尚未确认新版本内容，`ENABLE_CN_DAILY` 仍不存在，CN 日推保持关闭，待其明确确认后再单独开启。要关闭某人的日推，立即将对应变量改成 `0` 或删除；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。手动确认短语不能代替每日开关。
+每日发送使用两个独立的 Actions Variable 开关：`ENABLE_SELF_DAILY` 控制本人、`ENABLE_CN_DAILY` 控制女友；**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。按 Carlos 本轮的双端同步要求，两者现在都设为 `1`；女友手机尚未确认新版本内容，不能把开关已开启视为她已收到。要关闭某人的日推，立即将对应变量改成 `0` 或删除；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。手动确认短语不能代替每日开关。
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
@@ -99,7 +99,7 @@ QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用�
 
 GitHub 在工作流**排队时**读取仓库 Secret，故要在下一次 run 排队前完成编辑；排队后再更新或删除，不会更改那一次运行。DeepSeek [官方缓存说明](https://api-docs.deepseek.com/guides/kv_cache/)指出输入/输出前缀可能写入缓存，不要在主题中填写未经双方同意的聊天档案、凭据或第三方隐私。`exact` 不送 DeepSeek，但最终微信消息及当前预览日志都会展示它；Secret 的加密不隐藏已渲染的预览内容，仓库日志读取者可见。
 
-先使用 `mode=preview`、`slot=cn`，只检查该 job 的实际 `Preview CN` 步骤：`line_source=deepseek` 说明这一步的 API 结果通过校验；当天手写 `exact` 则为 `line_source=manual`，**不能证明 API 可用**。前面的 `Run tests` 步骤只用模拟响应，不能作为真实生成的证据。预览中的 `deepseek_key_set` 仅说明配置非空，不证明 Key 有效。主题预览和后续真发是两个独立请求，不保证生成同一句；手写原文在同一日期稳定。预览 job 始终不加载任何 `WECHAT_*`，不会发送微信消息；测试 API 不需要开启 CN 日推，`ENABLE_CN_DAILY` 保持未设置或不等于 `1`。
+先使用 `mode=preview`、`slot=cn`，只检查该 job 的实际 `Preview CN` 步骤：`line_source=deepseek` 说明这一步的 API 结果通过校验；当天手写 `exact` 则为 `line_source=manual`，**不能证明 API 可用**。前面的 `Run tests` 步骤只用模拟响应，不能作为真实生成的证据。预览中的 `deepseek_key_set` 仅说明配置非空，不证明 Key 有效。主题预览和后续真发是两个独立请求，不保证生成同一句；手写原文在同一日期稳定。手动预览 job 始终不加载任何 `WECHAT_*`，不会发送微信消息；即使每日开关已开启，手动预览仍是安全的。
 
 QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 暂不迁移 v1，后续必须在停服前安排迁移。
 
