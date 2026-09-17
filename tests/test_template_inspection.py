@@ -41,6 +41,8 @@ class TemplateInspectionTests(unittest.TestCase):
         self.assertTrue(result["template_found"])
         self.assertIn("love_line", result["missing_fields"])
         self.assertNotIn("greeting", result["missing_fields"])
+        self.assertEqual(result["field_lines"], [["greeting"], ["love_days"]])
+        self.assertEqual(result["content_chars"], len("{{greeting.DATA}}\nTogether: {{love_days.DATA}}"))
         self.assertNotIn("TEST_TEMPLATE_SECRET", str(result))
         self.assertNotIn("TEST_TOKEN_SECRET", str(result))
         self.assertIs(get.call_args.kwargs["allow_redirects"], False)
@@ -59,7 +61,16 @@ class TemplateInspectionTests(unittest.TestCase):
         with patch.object(wechat.requests, "get", return_value=response):
             self.assertEqual(
                 inspect("MATCH", "token"),
-                {"template_found": True, "missing_fields": []},
+                {
+                    "template_found": True,
+                    "missing_fields": [],
+                    "content_chars": len(content),
+                    "field_lines": [[key] for key in (
+                        "greeting", "city_a", "time_a", "weather_a", "city_b",
+                        "time_b", "weather_b", "love_days", "meet_days",
+                        "love_line", "weather_source",
+                    )],
+                },
             )
 
     def test_missing_template_is_distinct_from_missing_variable(self) -> None:
@@ -70,8 +81,24 @@ class TemplateInspectionTests(unittest.TestCase):
         with patch.object(wechat.requests, "get", return_value=response):
             self.assertEqual(
                 inspect("EXPECTED", "token"),
-                {"template_found": False, "missing_fields": []},
+                {
+                    "template_found": False,
+                    "missing_fields": [],
+                    "content_chars": 0,
+                    "field_lines": [],
+                },
             )
+
+    def test_outline_never_exposes_fixed_template_text(self) -> None:
+        content = "PRIVATE_LABEL {{love_line.DATA}}\n{{greeting.DATA}}"
+        response = self.response({
+            "template_list": [{"template_id": "MATCH", "content": content}]
+        })
+        inspect = getattr(wechat, "inspect_template_fields", lambda *_: None)
+        with patch.object(wechat.requests, "get", return_value=response):
+            result = inspect("MATCH", "token")
+        self.assertEqual(result["field_lines"], [["love_line"], ["greeting"]])
+        self.assertNotIn("PRIVATE_LABEL", str(result))
 
     def test_network_failure_does_not_expose_token(self) -> None:
         inspect = getattr(wechat, "inspect_template_fields", lambda *_: None)

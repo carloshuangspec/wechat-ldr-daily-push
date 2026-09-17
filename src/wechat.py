@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 import requests
@@ -125,7 +126,12 @@ def inspect_template_fields(
         raise WeChatAPIError("微信模板列表响应未被接受")
     matches = [t for t in templates if t.get("template_id") == selected_id]
     if not matches:
-        return {"template_found": False, "missing_fields": []}
+        return {
+            "template_found": False,
+            "missing_fields": [],
+            "content_chars": 0,
+            "field_lines": [],
+        }
     if len(matches) != 1 or not isinstance(matches[0].get("content"), str):
         raise WeChatAPIError("微信模板列表响应未被接受")
 
@@ -134,7 +140,16 @@ def inspect_template_fields(
         name for name in build_template_data({})
         if "{{" + name + ".DATA}}" not in content
     ]
-    return {"template_found": True, "missing_fields": missing}
+    field_lines = [
+        re.findall(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\.DATA\}\}", line)
+        for line in content.splitlines()
+    ]
+    return {
+        "template_found": True,
+        "missing_fields": missing,
+        "content_chars": len(content),
+        "field_lines": field_lines,
+    }
 
 
 def send_template(
