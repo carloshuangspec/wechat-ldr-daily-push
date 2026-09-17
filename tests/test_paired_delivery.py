@@ -30,6 +30,8 @@ PAIRED_ENV = {
     "GITHUB_RUN_ATTEMPT": "1",
     "ENABLE_CN_DAILY": "1",
     "ENABLE_SELF_DAILY": "1",
+    "DAILY_CLAIM_CREATED": "true",
+    "DAILY_CLAIM_DATE": "2026-09-17",
     "WECHAT_APP_ID": "TEST_APP",
     "WECHAT_APP_SECRET": "TEST_SECRET_NOT_FOR_LOGS",
     "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE_NOT_FOR_LOGS",
@@ -38,6 +40,17 @@ PAIRED_ENV = {
     "LOVE_START_DATE": "2026-07-08",
     "NEXT_MEET_DATE": "2026-12-20",
 }
+
+DISPATCH_ENV = {
+    **PAIRED_ENV,
+    "GITHUB_EVENT_NAME": "workflow_dispatch",
+    "GITHUB_ACTOR": "carloshuangspec",
+    "GITHUB_TRIGGERING_ACTOR": "carloshuangspec",
+    "LIVE_DISPATCH_MODE": "daily-both",
+    "LIVE_DISPATCH_SLOT": "both",
+    "LIVE_DISPATCH_DATE": "2026-09-17",
+}
+DISPATCH_ENV.pop("GITHUB_EVENT_SCHEDULE")
 
 
 class PairedDeliveryTests(unittest.TestCase):
@@ -100,7 +113,8 @@ class PairedDeliveryTests(unittest.TestCase):
             redirect_stderr(stderr),
         ):
             self.assertEqual(main.main(), 0)
-        today.assert_called_once_with("Asia/Shanghai")
+        self.assertEqual(today.call_count, 3)
+        today.assert_has_calls([unittest.mock.call("Asia/Shanghai")] * 3)
         self.assertEqual(clock.call_count, 2)
         self.assertEqual(weather.call_count, 2)
         line.assert_called_once_with(theme=None)
@@ -135,6 +149,7 @@ class PairedDeliveryTests(unittest.TestCase):
             with (
                 self.subTest(name=name, value=value),
                 patch.dict(os.environ, {**PAIRED_ENV, name: value}, clear=True),
+                patch.object(main, "local_today", return_value=date(2026, 9, 17)),
                 patch.object(main, "build_payload_fields") as build,
                 patch.object(main, "send_template") as send,
                 redirect_stderr(StringIO()),
@@ -142,6 +157,75 @@ class PairedDeliveryTests(unittest.TestCase):
                 self.assertEqual(main.main(), 2)
                 build.assert_not_called()
                 send.assert_not_called()
+
+    def test_claimed_dispatch_accepts_only_the_exact_paired_context(self) -> None:
+        with (
+            patch.dict(os.environ, DISPATCH_ENV, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 17)),
+        ):
+            main.validate_send_context("live", "cn")
+
+        for name, value in (
+            ("LIVE_DISPATCH_MODE", "preview"),
+            ("LIVE_DISPATCH_SLOT", "cn"),
+            ("LIVE_DISPATCH_DATE", "2026-09-18"),
+            ("GITHUB_ACTOR", "someone-else"),
+            ("GITHUB_TRIGGERING_ACTOR", "someone-else"),
+            ("GITHUB_REPOSITORY", "someone/fork"),
+            ("GITHUB_REF", "refs/heads/other"),
+            ("GITHUB_RUN_ATTEMPT", "2"),
+            ("DAILY_CLAIM_CREATED", ""),
+            ("DAILY_CLAIM_DATE", "2026-09-18"),
+            ("ENABLE_CN_DAILY", "0"),
+            ("ENABLE_SELF_DAILY", "0"),
+            ("PUSH_SLOT", "us"),
+        ):
+            with (
+                self.subTest(name=name, value=value),
+                patch.dict(os.environ, {**DISPATCH_ENV, name: value}, clear=True),
+                patch.object(main, "local_today", return_value=date(2026, 9, 17)),
+                patch.object(main, "build_payload_fields") as build,
+                patch.object(main, "send_template") as send,
+                redirect_stderr(StringIO()),
+            ):
+                self.assertEqual(main.main(), 2)
+                build.assert_not_called()
+                send.assert_not_called()
+
+    def test_scheduled_both_requires_a_current_claim(self) -> None:
+        for name, value in (
+            ("DAILY_CLAIM_CREATED", ""),
+            ("DAILY_CLAIM_DATE", "2026-09-18"),
+        ):
+            with (
+                self.subTest(name=name, value=value),
+                patch.dict(os.environ, {**PAIRED_ENV, name: value}, clear=True),
+                patch.object(main, "local_today", return_value=date(2026, 9, 17)),
+            ):
+                with self.assertRaises(main.ConfigError):
+                    main.validate_send_context("live", "cn")
+
+    def test_paired_payload_uses_shanghai_day_even_if_city_b_timezone_changes(self) -> None:
+        with (
+            patch.dict(os.environ, {**PAIRED_ENV, "CITY_B_TZ": "America/Detroit"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 17)) as today,
+            patch.object(main, "local_now_str", side_effect=["21:00", "09:00"]),
+            patch.object(main, "brief_weather", return_value="Fair 20°C"),
+            patch.object(main, "generate_love_line", return_value="With you, always"),
+        ):
+            main.build_payload_fields()
+        today.assert_called_once_with("Asia/Shanghai")
+
+    def test_paired_live_stops_when_shanghai_day_changes_before_send(self) -> None:
+        with (
+            patch.dict(os.environ, PAIRED_ENV, clear=True),
+            patch.object(main, "local_today", side_effect=[date(2026, 9, 17), date(2026, 9, 18)]),
+            patch.object(main, "build_payload_fields", return_value={"meet_days": "today | Hello", "love_line": "Hello"}),
+            patch.object(main, "send_template") as send,
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(main.main(), 2)
+        send.assert_not_called()
 
     def test_single_schedule_cannot_send_when_other_daily_switch_is_on(self) -> None:
         for recipient, slot, extra in (
@@ -155,6 +239,7 @@ class PairedDeliveryTests(unittest.TestCase):
                     {**PAIRED_ENV, "LIVE_RECIPIENT": recipient, "PUSH_SLOT": slot, **extra},
                     clear=True,
                 ),
+                patch.object(main, "local_today", return_value=date(2026, 9, 17)),
             ):
                 with self.assertRaises(main.ConfigError):
                     main.validate_send_context("live", slot)
@@ -163,6 +248,7 @@ class PairedDeliveryTests(unittest.TestCase):
         stdout, stderr = StringIO(), StringIO()
         with (
             patch.dict(os.environ, PAIRED_ENV, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 17)),
             patch.object(main, "build_payload_fields", return_value={"meet_days": "today | Hello", "love_line": "Hello"}),
             patch.object(main, "send_template", side_effect=[{"errcode": 0, "msgid": "123"}, RuntimeError("TEST_SECRET_NOT_FOR_LOGS")]) as send,
             redirect_stdout(stdout),

@@ -50,6 +50,29 @@ def validate_send_context(mode: str, slot: str) -> None:
     # 防误操作门禁：定时发送与受控手动发送的条件彼此独立。
     if os.getenv("GITHUB_ACTIONS") != "true":
         raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
+    if recipient == "both":
+        claimed_day = _env("DAILY_CLAIM_DATE")
+        if (
+            _env("DAILY_CLAIM_CREATED") != "true"
+            or claimed_day != local_today("Asia/Shanghai").isoformat()
+            or _env("ENABLE_CN_DAILY") != "1"
+            or _env("ENABLE_SELF_DAILY") != "1"
+        ):
+            raise ConfigError("双人真发 claim 或开关不符合门禁")
+        if os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch":
+            expected_dispatch = {
+                "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_ACTOR": "carloshuangspec",
+                "GITHUB_TRIGGERING_ACTOR": "carloshuangspec",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "LIVE_DISPATCH_MODE": "daily-both",
+                "LIVE_DISPATCH_SLOT": "both",
+                "LIVE_DISPATCH_DATE": claimed_day,
+            }
+            if any(_env(name) != value for name, value in expected_dispatch.items()):
+                raise ConfigError("双人手动真发上下文不符合门禁")
+            return
     if os.getenv("GITHUB_EVENT_NAME") == "schedule":
         expected_schedule = {
             "GITHUB_EVENT_SCHEDULE": "0 9 * * *",
@@ -71,7 +94,7 @@ def validate_send_context(mode: str, slot: str) -> None:
         return
 
     if recipient == "both":
-        raise ConfigError("双人真发只允许定时事件")
+        raise ConfigError("双人真发只允许已 claim 的定时或手动事件")
 
     if os.getenv("LIVE_CONFIRMATION") != expected_confirmation:
         raise ConfigError("live 缺少精确确认短语")
@@ -145,8 +168,15 @@ def build_payload_fields() -> dict[str, str]:
     known_start = date.fromisoformat(
         _env("KNOWN_START_DATE", "2019-09-02")
     ).isoformat()
-    # 各槽位按对应城市时区计算「今天」。
-    today = local_today(tz_b if slot == "cn" else tz_a)
+    # 配对快照始终绑定 Shanghai 的 claim 日；独立槽位保持各自城市时区。
+    paired_delivery = os.getenv("LIVE_RECIPIENT") == "both"
+    today = local_today("Asia/Shanghai" if paired_delivery else (tz_b if slot == "cn" else tz_a))
+    if (
+        paired_delivery
+        and _env("SEND_MODE", "dry-run").lower() == "live"
+        and today.isoformat() != _env("DAILY_CLAIM_DATE")
+    ):
+        raise ConfigError("双人真发 claim 日期不符合 Shanghai 当日")
     known_days = love_days(known_start, today=today)
     config = parse_config(os.getenv("DAILY_MESSAGE_CONFIG", "")) if slot == "cn" else None
     exact, theme, _, override_status = choose_line(config, today)
@@ -235,6 +265,17 @@ def main() -> int:
     except Exception:
         print("组装数据失败（详情已隐藏）", file=sys.stderr)
         return 1
+
+    try:
+        if (
+            mode == "live"
+            and os.getenv("LIVE_RECIPIENT") == "both"
+            and local_today("Asia/Shanghai").isoformat() != _env("DAILY_CLAIM_DATE")
+        ):
+            raise ConfigError("双人真发日期已变化，已停止发送")
+    except ConfigError as exc:
+        print(f"配置错误: {exc}", file=sys.stderr)
+        return 2
 
     if mode == "dry-run":
         payload_preview = {
