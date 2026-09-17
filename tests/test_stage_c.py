@@ -1253,13 +1253,30 @@ class WorkflowPolicyTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temporary_dir:
             fake_date = Path(temporary_dir) / "date"
-            fake_date.write_text("#!/bin/sh\nprintf '%s\\n' 2026-09-17\n", encoding="utf-8")
+            fake_date.write_text(
+                "#!/bin/sh\n"
+                "if [ \"${TZ:-}\" != \"Asia/Shanghai\" ] || [ \"$1\" != \"+%F\" ]; then\n"
+                "  exit 64\n"
+                "fi\n"
+                "printf '%s\\n' 2026-09-17\n",
+                encoding="utf-8",
+            )
             fake_date.chmod(0o755)
             env = {"PATH": f"{temporary_dir}:{os.environ['PATH']}", **base_env}
             valid = subprocess.run(
                 ["bash", "-c", validator], env=env, capture_output=True, text=True
             )
             self.assertEqual(valid.returncode, 0, valid.stderr)
+            wrong_timezone = validator.replace(
+                "TZ=Asia/Shanghai date +%F", "TZ=America/Detroit date +%F"
+            )
+            timezone_result = subprocess.run(
+                ["bash", "-c", wrong_timezone],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(timezone_result.returncode, 0, timezone_result.stderr)
             for name, value in (
                 ("REQUEST_SLOT", "cn"),
                 ("REQUEST_CONFIRMATION", "SEND_CN_ONCE"),
