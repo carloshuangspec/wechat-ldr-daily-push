@@ -16,20 +16,22 @@ class DailyWorkflowTests(unittest.TestCase):
             name: text.split(f"  {name}:\n", 1)[1].split(f"  {next_name}:\n", 1)[0]
             for name, next_name in (
                 ("preview-cn", "preview-us"),
-                ("preview-us", "live-self"),
+                ("preview-us", "preview-both"),
+                ("preview-both", "live-self"),
                 ("live-self", "live-cn"),
                 ("live-cn", "scheduled-cn"),
                 ("scheduled-cn", "scheduled-self"),
+                ("scheduled-self", "scheduled-both"),
             )
         }
-        cls.jobs["scheduled-self"] = text.split("  scheduled-self:\n", 1)[1]
+        cls.jobs["scheduled-both"] = text.split("  scheduled-both:\n", 1)[1]
 
     def test_daily_config_only_loads_in_cn_message_steps(self) -> None:
         for name, job in self.jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
                     job.count("DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}"),
-                    1 if name in {"preview-cn", "live-cn", "scheduled-cn"} else 0,
+                    1 if name in {"preview-cn", "preview-both", "live-cn", "scheduled-cn", "scheduled-both"} else 0,
                 )
 
     def test_all_message_steps_use_only_deepseek_key(self) -> None:
@@ -43,8 +45,12 @@ class DailyWorkflowTests(unittest.TestCase):
     def test_cn_scheduled_preview_is_skipped_when_daily_live_enabled(self) -> None:
         self.assertIn("vars.ENABLE_CN_DAILY != '1'", self.jobs["preview-cn"])
         self.assertIn("vars.ENABLE_CN_DAILY == '1'", self.jobs["scheduled-cn"])
+        self.assertIn("vars.ENABLE_SELF_DAILY != '1'", self.jobs["scheduled-cn"])
         self.assertIn("vars.ENABLE_SELF_DAILY != '1'", self.jobs["preview-us"])
         self.assertIn("vars.ENABLE_SELF_DAILY == '1'", self.jobs["scheduled-self"])
+        self.assertIn("vars.ENABLE_CN_DAILY != '1'", self.jobs["scheduled-self"])
+        self.assertIn("vars.ENABLE_CN_DAILY == '1'", self.jobs["scheduled-both"])
+        self.assertIn("vars.ENABLE_SELF_DAILY == '1'", self.jobs["scheduled-both"])
 
     def test_live_owner_first_run_and_recipient_separation_stay_intact(self) -> None:
         for name, confirmation, slot in (
@@ -57,7 +63,7 @@ class DailyWorkflowTests(unittest.TestCase):
                 self.assertIn(f"inputs.slot == '{slot}'", job)
                 self.assertIn("github.ref == 'refs/heads/main'", job)
                 self.assertIn("github.run_attempt == '1'", job)
-        for name in ("preview-cn", "preview-us"):
+        for name in ("preview-cn", "preview-us", "preview-both"):
             self.assertNotIn("WECHAT_APP_SECRET:", self.jobs[name])
         self.assertNotIn("WECHAT_OPENID_CN:", self.jobs["live-self"])
         self.assertNotIn("WECHAT_OPENID_SELF:", self.jobs["live-cn"])

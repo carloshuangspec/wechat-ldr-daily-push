@@ -1,4 +1,4 @@
-# 阶段 C：同一上海定时事件的两端真发各有独立开关；手动测试与预览保持独立。
+# 上海 09:00 定时：双开关同时开启时生成一份内容，分别发给两端。
 name: daily-push
 
 "on":
@@ -133,7 +133,7 @@ jobs:
       ((github.event_name == 'schedule' && github.event.schedule == '0 9 * * *' &&
         vars.ENABLE_CN_DAILY != '1') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
-        (inputs.slot == 'cn' || inputs.slot == 'both')))
+        inputs.slot == 'cn'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -178,7 +178,7 @@ jobs:
       ((github.event_name == 'schedule' && github.event.schedule == '0 9 * * *' &&
         vars.ENABLE_SELF_DAILY != '1') ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'preview' &&
-        (inputs.slot == 'us' || inputs.slot == 'both')))
+        inputs.slot == 'us'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -207,6 +207,50 @@ jobs:
           QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           # 预览 job 故意不加载任何 WECHAT_*。
+        run: |
+          export CITY_A="${CITY_A:-Ann Arbor}"
+          export CITY_B="${CITY_B:-Shanghai}"
+          export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
+          export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
+          python src/main.py
+
+  preview-both:
+    name: Preview Both (one Shanghai-day message)
+    needs: validate-dispatch
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'preview' && inputs.slot == 'both'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Preview Both
+        env:
+          PUSH_SLOT: cn
+          SEND_MODE: dry-run
+          LIVE_RECIPIENT: both
+          CITY_A: ${{ vars.CITY_A }}
+          CITY_B: ${{ vars.CITY_B }}
+          CITY_A_TZ: ${{ vars.CITY_A_TZ }}
+          CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
+          LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
+          NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
+          QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
+          QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}
+          # Shared preview deliberately loads no WECHAT_* credentials.
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"
           export CITY_B="${CITY_B:-Shanghai}"
@@ -329,6 +373,7 @@ jobs:
       github.event_name == 'schedule' &&
       github.event.schedule == '0 9 * * *' &&
       vars.ENABLE_CN_DAILY == '1' &&
+      vars.ENABLE_SELF_DAILY != '1' &&
       github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == '1'
@@ -352,6 +397,7 @@ jobs:
           LIVE_RECIPIENT: cn
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
           ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}
+          ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}
           CITY_A: ${{ vars.CITY_A }}
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
@@ -382,6 +428,7 @@ jobs:
       github.event_name == 'schedule' &&
       github.event.schedule == '0 9 * * *' &&
       vars.ENABLE_SELF_DAILY == '1' &&
+      vars.ENABLE_CN_DAILY != '1' &&
       github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == '1'
@@ -405,6 +452,7 @@ jobs:
           LIVE_RECIPIENT: self
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
           ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}
+          ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}
           CITY_A: ${{ vars.CITY_A }}
           CITY_B: ${{ vars.CITY_B }}
           CITY_A_TZ: ${{ vars.CITY_A_TZ }}
@@ -418,6 +466,62 @@ jobs:
           WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
           WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
           WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
+          WECHAT_OPENID_SELF: ${{ secrets.WECHAT_OPENID_SELF }}
+        run: |
+          export CITY_A="${CITY_A:-Ann Arbor}"
+          export CITY_B="${CITY_B:-Shanghai}"
+          export CITY_A_TZ="${CITY_A_TZ:-America/Detroit}"
+          export CITY_B_TZ="${CITY_B_TZ:-Asia/Shanghai}"
+          python src/main.py
+
+  scheduled-both:
+    name: LIVE Both schedule (one shared message)
+    needs: validate-dispatch
+    if: >
+      needs.validate-dispatch.result == 'success' &&
+      github.event_name == 'schedule' &&
+      github.event.schedule == '0 9 * * *' &&
+      vars.ENABLE_CN_DAILY == '1' &&
+      vars.ENABLE_SELF_DAILY == '1' &&
+      github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests without live credentials
+        run: python -m unittest discover -s tests -v
+      - name: Send one shared message to CN and SELF
+        env:
+          PUSH_SLOT: cn
+          SEND_MODE: live
+          LIVE_RECIPIENT: both
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ENABLE_CN_DAILY: ${{ vars.ENABLE_CN_DAILY }}
+          ENABLE_SELF_DAILY: ${{ vars.ENABLE_SELF_DAILY }}
+          CITY_A: ${{ vars.CITY_A }}
+          CITY_B: ${{ vars.CITY_B }}
+          CITY_A_TZ: ${{ vars.CITY_A_TZ }}
+          CITY_B_TZ: ${{ vars.CITY_B_TZ }}
+          KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}
+          LOVE_START_DATE: ${{ secrets.LOVE_START_DATE }}
+          NEXT_MEET_DATE: ${{ secrets.NEXT_MEET_DATE }}
+          QWEATHER_KEY: ${{ secrets.QWEATHER_KEY }}
+          QWEATHER_API_HOST: ${{ secrets.QWEATHER_API_HOST }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DAILY_MESSAGE_CONFIG: ${{ secrets.DAILY_MESSAGE_CONFIG }}
+          WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+          WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+          WECHAT_TEMPLATE_ID: ${{ secrets.WECHAT_TEMPLATE_ID }}
+          WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}
           WECHAT_OPENID_SELF: ${{ secrets.WECHAT_OPENID_SELF }}
         run: |
           export CITY_A="${CITY_A:-Ann Arbor}"

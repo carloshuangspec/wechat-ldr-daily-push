@@ -40,9 +40,10 @@ def validate_send_context(mode: str, slot: str) -> None:
     allowed = {
         "self": ("us", "SEND_SELF_ONCE"),
         "cn": ("cn", "SEND_CN_ONCE"),
+        "both": ("cn", None),
     }
     if recipient not in allowed:
-        raise ConfigError("live 需要明确的 LIVE_RECIPIENT=self 或 cn")
+        raise ConfigError("live 需要明确的 LIVE_RECIPIENT=self、cn 或 both")
     expected_slot, expected_confirmation = allowed[recipient]
     if slot != expected_slot:
         raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
@@ -50,17 +51,27 @@ def validate_send_context(mode: str, slot: str) -> None:
     if os.getenv("GITHUB_ACTIONS") != "true":
         raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
     if os.getenv("GITHUB_EVENT_NAME") == "schedule":
-        enabled_flag = {"cn": "ENABLE_CN_DAILY", "self": "ENABLE_SELF_DAILY"}[recipient]
         expected_schedule = {
             "GITHUB_EVENT_SCHEDULE": "0 9 * * *",
-            enabled_flag: "1",
             "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
             "GITHUB_REF": "refs/heads/main",
             "GITHUB_RUN_ATTEMPT": "1",
         }
         if any(os.getenv(name) != value for name, value in expected_schedule.items()):
             raise ConfigError("定时真发上下文不符合门禁")
+        cn_enabled = os.getenv("ENABLE_CN_DAILY") == "1"
+        self_enabled = os.getenv("ENABLE_SELF_DAILY") == "1"
+        allowed_switches = {
+            "cn": cn_enabled and not self_enabled,
+            "self": self_enabled and not cn_enabled,
+            "both": cn_enabled and self_enabled,
+        }
+        if not allowed_switches[recipient]:
+            raise ConfigError("定时收件人开关不符合门禁")
         return
+
+    if recipient == "both":
+        raise ConfigError("双人真发只允许定时事件")
 
     if os.getenv("LIVE_CONFIRMATION") != expected_confirmation:
         raise ConfigError("live 缺少精确确认短语")
@@ -93,7 +104,7 @@ def resolve_openid() -> str:
     return oid
 
 
-def validate_live_configuration() -> str:
+def validate_live_configuration() -> list[tuple[str, str]]:
     """在任何天气、DeepSeek 或微信请求之前验证真发配置。"""
     missing = [
         name
@@ -102,7 +113,15 @@ def validate_live_configuration() -> str:
     ]
     if missing:
         raise ConfigError("缺少微信真发必填配置")
-    return resolve_openid()
+    if os.getenv("LIVE_RECIPIENT") == "both":
+        cn_openid = _env("WECHAT_OPENID_CN")
+        self_openid = _env("WECHAT_OPENID_SELF")
+        if not cn_openid or not self_openid:
+            raise ConfigError("双人真发缺少收件人 OpenID")
+        if cn_openid == self_openid:
+            raise ConfigError("双人真发需要两个不同的 OpenID")
+        return [("cn", cn_openid), ("self", self_openid)]
+    return [(os.environ["LIVE_RECIPIENT"], resolve_openid())]
 
 
 def build_payload_fields() -> dict[str, str]:
@@ -159,7 +178,9 @@ def build_payload_fields() -> dict[str, str]:
     time_a = local_now_str(tz_a)
     time_b = local_now_str(tz_b)
     recipient_hour = int((time_b if slot == "cn" else time_a).split(":", 1)[0])
-    if 5 <= recipient_hour < 12:
+    if os.getenv("LIVE_RECIPIENT") == "both":
+        greeting = "Hello, love!"
+    elif 5 <= recipient_hour < 12:
         greeting = "Good morning, love!"
     elif 12 <= recipient_hour < 18:
         greeting = "Afternoon, love!"
@@ -196,7 +217,7 @@ def main() -> int:
         raw_slot = os.getenv("PUSH_SLOT") or ""
         slot = raw_slot.strip().lower()
         validate_send_context(mode, raw_slot if mode == "live" else slot)
-        openid = validate_live_configuration() if mode == "live" else ""
+        recipients = validate_live_configuration() if mode == "live" else []
     except ConfigError as exc:
         print(f"配置错误: {exc}", file=sys.stderr)
         return 2
@@ -232,18 +253,22 @@ def main() -> int:
         print("SEND_MODE=dry-run：已跳过发送。", file=sys.stderr)
         return 0
 
-    try:
-        result = send_template(openid=openid, data=template_data)
-        safe_result = {
-            "ok": True,
-            "errcode": result["errcode"],
-            "msgid": result["msgid"],
-        }
-        print(json.dumps(safe_result, ensure_ascii=False))
-        return 0
-    except Exception:
-        print("发送失败（详情已脱敏）", file=sys.stderr)
-        return 1
+    for role, openid in recipients:
+        try:
+            result = send_template(openid=openid, data=template_data)
+            safe_result = {
+                "ok": True,
+                "errcode": result["errcode"],
+                "msgid": result["msgid"],
+            }
+            if len(recipients) == 2:
+                safe_result["recipient"] = role
+            print(json.dumps(safe_result, ensure_ascii=False), flush=True)
+        except Exception:
+            role_note = f" recipient={role}" if len(recipients) == 2 else ""
+            print(f"发送失败（详情已脱敏）{role_note}", file=sys.stderr)
+            return 1
+    return 0
 
 
 if __name__ == "__main__":

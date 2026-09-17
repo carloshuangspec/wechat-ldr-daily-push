@@ -1183,7 +1183,8 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("`1`", readme)
         self.assertIn("本人手机已确认修复后的英文情话显示", readme)
         self.assertIn("女友手机尚未确认", readme)
-        self.assertIn("约 09:00", readme)
+        self.assertIn("上海 09:00", readme)
+        self.assertIn("`scheduled-both`", readme)
         self.assertIn("关闭", readme)
 
 
@@ -1202,7 +1203,7 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIn('timezone: "Asia/Shanghai"', self.workflow)
         self.assertEqual(self.workflow.count('    - cron: "0 9 * * *"'), 1)
         self.assertNotIn('timezone: "America/Detroit"', self.workflow)
-        self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 4)
+        self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 5)
 
     def test_stage_c_manual_gate_is_exact(self) -> None:
         self.assertIn('[ "$REQUEST_SLOT" != "cn" ]', self.workflow)
@@ -1217,8 +1218,8 @@ class WorkflowPolicyTests(unittest.TestCase):
         )
         self.assertIn('REQUEST_REF: ${{ github.ref }}', self.workflow)
         self.assertIn('REQUEST_ATTEMPT: ${{ github.run_attempt }}', self.workflow)
-        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 4)
-        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 4)
+        self.assertEqual(self.workflow.count("github.ref == 'refs/heads/main'"), 5)
+        self.assertEqual(self.workflow.count("github.run_attempt == '1'"), 5)
 
     def test_preview_jobs_have_no_wechat_credentials(self) -> None:
         self.assertIn("  live-self:", self.workflow)
@@ -1226,9 +1227,12 @@ class WorkflowPolicyTests(unittest.TestCase):
             "  preview-us:", 1
         )[0]
         us_job = self.workflow.split("  preview-us:", 1)[1].split(
+            "  preview-both:", 1
+        )[0]
+        both_job = self.workflow.split("  preview-both:", 1)[1].split(
             "  live-self:", 1
         )[0]
-        for job in (cn_job, us_job):
+        for job in (cn_job, us_job, both_job):
             self.assertIn("SEND_MODE: dry-run", job)
             self.assertNotIn("WECHAT_APP_ID:", job)
             self.assertNotIn("WECHAT_APP_SECRET:", job)
@@ -1238,7 +1242,7 @@ class WorkflowPolicyTests(unittest.TestCase):
             self.assertNotIn("SEND_MODE: ${{", job)
 
     def test_deepseek_is_available_in_each_message_job(self) -> None:
-        self.assertEqual(self.workflow.count("DEEPSEEK_API_KEY:"), 6)
+        self.assertEqual(self.workflow.count("DEEPSEEK_API_KEY:"), 8)
         self.assertNotIn("GEMINI_API_KEY:", self.workflow)
 
     def test_manual_live_jobs_are_isolated_by_recipient_and_event(self) -> None:
@@ -1281,11 +1285,11 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertNotIn("WECHAT_OPENID_CN:", self_job)
         self.assertIn("WECHAT_OPENID_CN: ${{ secrets.WECHAT_OPENID_CN }}", cn_job)
         self.assertNotIn("WECHAT_OPENID_SELF:", cn_job)
-        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 4)
-        self.assertEqual(self.workflow.count("WECHAT_OPENID_SELF:"), 2)
-        self.assertEqual(self.workflow.count("WECHAT_OPENID_CN:"), 2)
+        self.assertEqual(self.workflow.count("WECHAT_APP_SECRET:"), 5)
+        self.assertEqual(self.workflow.count("WECHAT_OPENID_SELF:"), 3)
+        self.assertEqual(self.workflow.count("WECHAT_OPENID_CN:"), 3)
         self.assertNotIn("WECHAT_OPENID_US:", self.workflow)
-        self.assertEqual(self.workflow.count("SEND_MODE: live"), 4)
+        self.assertEqual(self.workflow.count("SEND_MODE: live"), 5)
         self.assertNotIn("DRY_RUN:", self.workflow)
         self.assertNotIn("vars.DRY_RUN", self.workflow)
 
@@ -1323,12 +1327,12 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_known_start_date_reaches_every_message_job(self) -> None:
         self.assertEqual(
-            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 6
+            self.workflow.count("KNOWN_START_DATE: ${{ vars.KNOWN_START_DATE }}"), 8
         )
 
     def test_workflow_uses_current_node24_actions_and_fixed_concurrency(self) -> None:
-        self.assertEqual(self.workflow.count("actions/checkout@v7"), 6)
-        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 6)
+        self.assertEqual(self.workflow.count("actions/checkout@v7"), 8)
+        self.assertEqual(self.workflow.count("actions/setup-python@v7"), 8)
         self.assertIn("group: wechat-ldr-daily-push-stage-c", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
 
