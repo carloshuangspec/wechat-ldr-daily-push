@@ -42,6 +42,7 @@ permissions:
 
 concurrency:
   group: wechat-ldr-daily-push-stage-c
+  queue: max
   cancel-in-progress: false
 
 jobs:

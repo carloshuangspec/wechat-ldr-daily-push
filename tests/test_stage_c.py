@@ -1411,6 +1411,7 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertEqual(self.workflow.count("actions/checkout@v7"), 9)
         self.assertEqual(self.workflow.count("actions/setup-python@v7"), 9)
         self.assertIn("group: wechat-ldr-daily-push-stage-c", self.workflow)
+        self.assertIn("queue: max", self.workflow)
         self.assertIn("cancel-in-progress: false", self.workflow)
 
 
