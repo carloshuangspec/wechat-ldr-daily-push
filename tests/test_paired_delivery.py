@@ -182,10 +182,9 @@ class PairedDeliveryTests(unittest.TestCase):
         self.assertIs(first["data"], second["data"])
         self.assertEqual(first["data"]["greeting"]["value"], "Known: ≈2573 days")
         self.assertEqual(first["data"]["love_days"]["value"], "72 days")
-        self.assertEqual(first["data"]["meet_days"]["value"], "in 94 days")
+        self.assertEqual(first["data"]["meet_days"]["value"], "in 94 days | Always, with you.")
         self.assertEqual(first["data"]["love_line"]["value"], "Always, with you.")
         self.assertNotIn("Known", first["data"]["love_line"]["value"])
-        self.assertNotIn("|", first["data"]["meet_days"]["value"])
         for secret in ("WECHAT_APP_SECRET", "WECHAT_TEMPLATE_ID", "WECHAT_OPENID_CN", "WECHAT_OPENID_SELF"):
             self.assertNotIn(PAIRED_ENV[secret], stdout.getvalue() + stderr.getvalue())
 
@@ -359,7 +358,7 @@ class PairedDeliveryTests(unittest.TestCase):
         for call in send.call_args_list:
             self.assertEqual(
                 call.kwargs["data"]["meet_days"]["value"],
-                "in 94 days",
+                "in 94 days | One page at a time",
             )
             self.assertEqual(
                 call.kwargs["data"]["love_line"]["value"],

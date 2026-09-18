@@ -34,14 +34,46 @@ class DailyIntegrationTests(unittest.TestCase):
             patch.object(main, "generate_love_line", return_value="I ache for you."),
         ):
             fields = main.build_payload_fields()
-        self.assertEqual(fields["meet_days"], "in 95 days")
+        self.assertEqual(fields["meet_days"], "in 95 days | I ache for you.")
         self.assertEqual(
             wechat.build_template_data(fields)["meet_days"]["value"],
-            "in 95 days",
+            "in 95 days | I ache for you.",
         )
         self.assertEqual(fields["love_line"], "I ache for you.")
         self.assertTrue(fields["greeting"].startswith("Known: ≈"))
-        self.assertNotIn("|", fields["meet_days"])
+
+    def test_long_love_line_keeps_full_dedicated_field_and_visible_excerpt(self) -> None:
+        line = "I love the ordinary hours we get to build together, one by one."
+        with (
+            patch.dict(os.environ, {**BASE_ENV, "PUSH_SLOT": "us"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value=line),
+        ):
+            fields = main.build_payload_fields()
+        self.assertEqual(fields["love_line"], line)
+        self.assertLessEqual(len(fields["meet_days"]), 64)
+        self.assertTrue(fields["meet_days"].startswith("in 95 days | I love the ordinary"))
+        self.assertTrue(fields["meet_days"].endswith("..."))
+        self.assertEqual(
+            wechat.build_template_data(fields)["meet_days"]["value"], fields["meet_days"]
+        )
+
+    def test_long_single_word_does_not_shrink_excerpt_to_first_word(self) -> None:
+        line = "You " + "x" * 60
+        with (
+            patch.dict(os.environ, {**BASE_ENV, "PUSH_SLOT": "us"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value=line),
+        ):
+            fields = main.build_payload_fields()
+        self.assertEqual(fields["love_line"], line)
+        self.assertTrue(fields["meet_days"].startswith("in 95 days | You xxxxxxxxxx"))
+        self.assertTrue(fields["meet_days"].endswith("..."))
+        self.assertLessEqual(len(fields["meet_days"]), 64)
 
     def test_meeting_field_rejects_truncation_of_emotional_line(self) -> None:
         with self.assertRaises(ValueError):
@@ -67,7 +99,7 @@ class DailyIntegrationTests(unittest.TestCase):
         today.assert_called_once_with("Asia/Shanghai")
         self.assertEqual(fields["love_line"], "My favorite day")
         self.assertEqual(fields["greeting"], "Known: ≈2572 days")
-        self.assertEqual(fields["meet_days"], "in 95 days")
+        self.assertEqual(fields["meet_days"], "in 95 days | My favorite day")
         self.assertEqual(
             wechat.build_template_data(fields)["love_line"]["value"], fields["love_line"]
         )
