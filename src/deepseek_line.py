@@ -95,21 +95,22 @@ def generate_love_line(
     weather: tuple[str | None, str | None] | None = None,
 ) -> str:
     """Ask for a fresh line; reject any failed or partial completion."""
-    if dayparts is not None and (
-        type(dayparts) is not tuple
-        or len(dayparts) != 2
-        or any(type(part) is not str or part not in VALID_DAYPARTS for part in dayparts)
-    ):
-        _unavailable("invalid_context")
-    if weather is not None and (
-        type(weather) is not tuple
-        or len(weather) != 2
-        or any(
-            cue is not None and (type(cue) is not str or cue not in VALID_WEATHER_CUES)
-            for cue in weather
-        )
-    ):
-        _unavailable("invalid_context")
+    if theme is None:
+        if dayparts is not None and (
+            type(dayparts) is not tuple
+            or len(dayparts) != 2
+            or any(type(part) is not str or part not in VALID_DAYPARTS for part in dayparts)
+        ):
+            _unavailable("invalid_context")
+        if weather is not None and (
+            type(weather) is not tuple
+            or len(weather) != 2
+            or any(
+                cue is not None and (type(cue) is not str or cue not in VALID_WEATHER_CUES)
+                for cue in weather
+            )
+        ):
+            _unavailable("invalid_context")
 
     key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
     if not key:

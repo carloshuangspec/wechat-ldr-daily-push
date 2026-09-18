@@ -155,6 +155,29 @@ class DeepSeekLineTests(unittest.TestCase):
                 self.assertNotIn(default_only, prompt)
         self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
 
+    def test_manual_theme_ignores_malformed_context_entirely(self) -> None:
+        for context in (
+            {"dayparts": ("morning", ["UNTRUSTED_CLOCK"])},
+            {"weather": ("UNTRUSTED_WEATHER", {"raw": "private"})},
+        ):
+            with self.subTest(context=context):
+                stderr = StringIO()
+                with (
+                    patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+                    patch.object(requests, "post", return_value=self.response()) as post,
+                    redirect_stderr(stderr),
+                ):
+                    line = generate_love_line(theme="ordinary days", **context)
+                self.assertEqual(line, "You are my home")
+                post.assert_called_once()
+                prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+                self.assertIn("ordinary days", prompt)
+                self.assertNotIn("cross-time-zone handoff", prompt)
+                self.assertNotIn("Anonymous dayparts", prompt)
+                self.assertNotIn("Anonymous weather cues", prompt)
+                self.assertNotIn("UNTRUSTED", prompt)
+                self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
+
     def test_malformed_context_is_rejected_before_request_with_fixed_diagnostic(self) -> None:
         invalid_contexts = (
             {"dayparts": "morning"},
