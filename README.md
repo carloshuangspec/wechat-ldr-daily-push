@@ -2,22 +2,19 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：两次彼此独立的手动真发（先 SELF/US，再 CN）已有微信 API 接受结果；本人手机已确认修复后的英文情话显示，女友手机尚未确认。手动真发仍分别受控；双端每日开关同时开启时，上海 09:00 的一次定时任务组装同一份内容并依次发送给两人。首次双端定时运行、两部手机收到及内容一致性仍待验收。现已**分阶段提供** `daily-both` 手动入口；Grok 尚未启用或接管任何发送，原有上海 09:00 定时路径仍保持开启。
+当前处于“阶段 C”：此前单人手动真发已有微信 API 接受结果，本人手机也曾看到英文情话；样稿 C 的手机卡片曾漏显情话，本次可见性修复仍须本人手机复验。Grok 的例程已启用，每天上海 09:00 只负责拉起本仓库 `main` 上的 `daily-both`；GitHub Actions 组装同一份内容并依次调用微信接口发送给两人。仓库自身不再配置定时触发；两部手机收到及显示同一句的本次结果仍须分别验收。
 
 ## 安全运行模式
 
 应用层 `SEND_MODE` 只接受两个值：
 
 - `dry-run`：只打印脱敏预览，不发送；缺失时也是此模式。
-- `live`：手动真发必须精确匹配 `LIVE_RECIPIENT=self`、`PUSH_SLOT=us`、
+- `live`：单人手动真发必须精确匹配 `LIVE_RECIPIENT=self`、`PUSH_SLOT=us`、
   `LIVE_CONFIRMATION=SEND_SELF_ONCE`，或 `LIVE_RECIPIENT=cn`、`PUSH_SLOT=cn`、
   `LIVE_CONFIRMATION=SEND_CN_ONCE`，并满足受控 GitHub Actions
-  `workflow_dispatch` 上下文。定时真发只接受 `schedule` 事件、
-  `GITHUB_EVENT_SCHEDULE=0 9 * * *`。两开关都为 `1` 时，只接受
-  `LIVE_RECIPIENT=both` / `PUSH_SLOT=cn`，并在发送前校验两位不同的收件人；
-  仅开一个开关时，才分别接受 `LIVE_RECIPIENT=cn` / `PUSH_SLOT=cn` 或
-  `LIVE_RECIPIENT=self` / `PUSH_SLOT=us`。定时路径不读取手动确认短语。
-  两种路径均须匹配 GitHub Actions、
+  `workflow_dispatch` 上下文。每日双端真发通过 `workflow_dispatch` 的
+  `mode=daily-both`、`slot=both`、空确认短语及当天上海日期进入；两开关
+  都为 `1`、日期 claim 成功且两位收件人不同才允许发送。两种路径均须匹配 GitHub Actions、
   本仓库 `main` 和首次 run，其他情况在任何天气或发送请求前停止。
 
 这层 `GITHUB_*` 检查用于防误操作，不是不可伪造的远程身份证明；环境变量在
@@ -48,9 +45,9 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 - 本人测试：选择 `mode=live-self`、`slot=us`，并在 confirmation 精确输入 `SEND_SELF_ONCE`。该 job 只能使用 `WECHAT_OPENID_SELF`，不能读取 CN 收件人的 OpenID。
 - 女友测试：选择 `mode=live-cn`、`slot=cn`，并在 confirmation 精确输入 `SEND_CN_ONCE`。该 job 只能使用 `WECHAT_OPENID_CN`，不能读取本人的 OpenID。
 - 双端每日：仅在两个每日开关都精确为 `1` 时，可选择 `mode=daily-both`、`slot=both`、空 confirmation，并将 `delivery_date` 精确填为当天上海日期 `YYYY-MM-DD`。门禁会同时校验仓库、`main`、发起人与首次 run；先由唯一拥有 `contents: write` 权限的 claim job 为该上海日期创建 Git ref，再允许只读的 `daily-both` sender 运行。claim job 不读取微信或 DeepSeek 配置；sender 没有 GitHub 写 token。Git ref 已存在、任何值不匹配或 Re-run 都不会发送，也不会自动重试。
-- 两条真发路径都限制为本仓库 `main` 分支、仓库所有者首次执行的手动 run；对该 run 点 Re-run 会被拒绝。槽位、短语、仓库、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行；定时事件也不能进入它们。
+- 所有真发入口都限制为本仓库 `main` 分支、仓库所有者首次执行的 `workflow_dispatch` run；对该 run 点 Re-run 会被拒绝。槽位、短语、日期、仓库、分支、触发者或 run attempt 不匹配时，门禁 job 会失败，发送 job 不运行。
 
-阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` / `preview-both` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。双开关均为 `1` 时只有 `daily-both` 真发，两个单人定时 job 不运行；它同时服务原上海 09:00 schedule 和受控的 `daily-both` dispatch，且必须先取得日期 claim。恰好一个开关为 `1` 时只有对应的 `scheduled-self` 或 `scheduled-cn` 真发，另一人保持自动预览；两者都关闭时只做自动预览。手动预览始终可用。手动 `live-self` / `live-cn` 与单人定时 job 只加载各自 OpenID；`daily-both` 的发送步骤须加载并校验两个不同的 OpenID，再组装一次内容并依次发送。所有真发 job 在发送步骤前运行单元测试。
+阶段 C 将预览与真发拆成独立 job：`preview-cn` / `preview-us` / `preview-both` 均使用 `SEND_MODE=dry-run`，完全不加载任何 `WECHAT_*`。Grok 每天只派发 `daily-both`：双开关均为 `1` 且取得日期 claim 后才能真发；任一开关关闭就不自动发送，单人定时 job 因 GitHub `schedule` 已撤除而不再被触发。手动预览始终可用。手动 `live-self` / `live-cn` 只加载各自 OpenID；`daily-both` 的发送步骤须加载并校验两个不同的 OpenID，再组装一次内容并依次发送。所有真发 job 在发送步骤前运行单元测试。
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。双端真发是两次顺序调用微信接口，并非原子事务或两部手机同时送达；第一人成功而第二人失败时，日志应保留第一人的脱敏接受状态，不盲目重试整个任务，以免重复发送。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认先前手动测试，CN 手机与首次双端定时运行尚未确认。若发现收件人或内容错误，应立即关闭对应的每日开关并排查，不自动重发。
 
@@ -92,7 +89,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 | `CITY_A` / `CITY_B` | Actions Variable | 默认 `Ann Arbor` / `Shanghai` |
 | `CITY_A_TZ` / `CITY_B_TZ` | Actions Variable | 默认 `America/Detroit` / `Asia/Shanghai` |
 
-每日发送使用两个 Actions Variable 开关：`ENABLE_SELF_DAILY` 控制本人、`ENABLE_CN_DAILY` 控制女友；**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。两个都开时进入共用内容的双端真发；只开一个则回到该收件人的单人真发。开关已开启不代表手机已收到。要关闭某人的日推，将对应变量改成 `0` 或删除；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。手动确认短语不能代替每日开关。
+每日发送使用两个 Actions Variable 开关：`ENABLE_SELF_DAILY` 控制本人、`ENABLE_CN_DAILY` 控制女友；**不存在或不等于精确的 `1` 时均关闭**，不是 Secret。Grok 只派发双端模式，所以两个开关必须都为 `1` 才能自动发送；关闭任一个会使当日双端派发在门禁处失败，不会改发单人版。开关已开启不代表手机已收到。要暂停日推，将任一变量改成 `0` 或删除；已开始的运行无法靠关闭开关撤回，仍需核对运行与手机状态。手动确认短语不能代替每日开关。
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
@@ -145,16 +142,14 @@ Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creati
 
 ## 定时任务
 
-GitHub Actions schedule 使用 IANA 时区；每天的唯一触发时间配置为上海 09:00：
+Grok 的已启用例程每天上海 09:00 拉起一次 GitHub Actions `workflow_dispatch`：在本仓库 `main` 指定 `mode=daily-both`、`slot=both`、空 `confirmation`，并填写当天上海日期 `delivery_date=YYYY-MM-DD`。Grok 只负责拉起工作流，不生成情话或调用微信；本仓库已撤除 GitHub Actions 原生 `schedule`，避免双重自动入口。
 
-| 每日开关 | Job | 阶段 C 行为 |
+| 每日开关 | Job | 自动派发结果 |
 |----------|-----|-------------|
-| 两个都为 `1` | `claim-daily` → `daily-both` | 上海日期的一份内容，先创建不可重复的 claim，再依次发给女友和本人；单人定时 job 不运行 |
-| 仅本人为 `1` | `scheduled-self` + `preview-cn` | 只给本人真发，女友只预览 |
-| 仅女友为 `1` | `scheduled-cn` + `preview-us` | 只给女友真发，本人只预览 |
-| 两个均未开启 | `preview-cn` + `preview-us` | 不发微信，只分别预览 |
+| 两个都为 `1` | `claim-daily` → `daily-both` | 先为上海日期创建不可重复的 claim，再组装一份内容，依次请求发送给女友和本人 |
+| 任一不为 `1` | `validate-dispatch` | 门禁失败，不自动发送；仍可单独手动预览 |
 
-以上由唯一 `0 9 * * *` + `Asia/Shanghai` 定时事件决定。上海 09:00 在底特律夏令时是前一天 21:00，冬令时是前一天 20:00；无法让两地全年都固定在 09:00 / 21:00。双端任务只组装一次天气、当地时间、上海日期天数和英文情话（DeepSeek 可按无效文案规则在发送前重新生成），当天的 `DAILY_MESSAGE_CONFIG` 同时作用于两份完全相同的消息；两次发送只是分别指定两个不同 OpenID。单人任务保留各自当地日期和生成方式，问候字段均为 Known 行。GitHub 定时保存在云端，不依赖本机开机，但整点触发可能排队、延迟或丢弃；即便事件按时开始，安装依赖以及两次微信 API 请求也会再耗时。新时刻和两部手机实际收到的情况须以运行记录及手机验收，不能承诺手机每天 09:00 准点、同一秒收到。
+上海 09:00 在底特律夏令时是前一天 21:00，冬令时是前一天 20:00；无法让两地全年都固定在 09:00 / 21:00。双端任务只组装一次天气、当地时间、上海日期天数和英文情话（DeepSeek 可按无效文案规则在发送前重新生成），当天的 `DAILY_MESSAGE_CONFIG` 同时作用于两份相同内容；随后以两个不同 OpenID 顺序请求微信接口，不是原子事务。日期 claim 在发送前创建；任一端失败也不能盲目重跑整条，以免重复发送。Grok 例程和 GitHub Actions 均在云端，不依赖本机开机；派发、排队、安装依赖与两次微信 API 请求都可能延迟。运行成功或微信 API 接受不等于两部手机收到；时间和显示内容须分别在手机验收，不能承诺每天 09:00 准点或同一秒收到。
 
 ## 项目结构与测试
 

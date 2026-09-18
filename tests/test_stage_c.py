@@ -1250,8 +1250,8 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("`ENABLE_CN_DAILY`", readme)
         self.assertIn("`ENABLE_SELF_DAILY`", readme)
         self.assertIn("`1`", readme)
-        self.assertIn("本人手机已确认修复后的英文情话显示", readme)
-        self.assertIn("女友手机尚未确认", readme)
+        self.assertIn("本人手机也曾看到英文情话", readme)
+        self.assertIn("两部手机收到及显示同一句的本次结果仍须分别验收", readme)
         self.assertIn("上海 09:00", readme)
         self.assertIn("`daily-both`", readme)
         self.assertIn("关闭", readme)
@@ -1267,11 +1267,12 @@ class WorkflowPolicyTests(unittest.TestCase):
             / "daily-push.yml"
         ).read_text(encoding="utf-8")
 
-    def test_timezone_schedules_and_matching_conditions(self) -> None:
-        self.assertIn('cron: "0 9 * * *"', self.workflow)
-        self.assertIn('timezone: "Asia/Shanghai"', self.workflow)
-        self.assertEqual(self.workflow.count('    - cron: "0 9 * * *"'), 1)
+    def test_grok_dispatch_is_the_only_automatic_entry(self) -> None:
+        self.assertNotIn("  schedule:\n", self.workflow.split("  workflow_dispatch:\n", 1)[0])
+        self.assertIn("  workflow_dispatch:\n", self.workflow)
+        self.assertNotIn('    - cron: "0 9 * * *"', self.workflow)
         self.assertNotIn('timezone: "America/Detroit"', self.workflow)
+        # Dormant schedule conditions are retained for a reversible cutover.
         self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 6)
 
     def test_stage_c_manual_gate_is_exact(self) -> None:

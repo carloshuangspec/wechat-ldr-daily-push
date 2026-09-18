@@ -1,10 +1,7 @@
-# 上海 09:00 定时：双开关同时开启时生成一份内容，分别发给两端。
+# Grok 于上海 09:00 发起 daily-both；同一份内容分别发给两端。
 name: daily-push
 
 "on":
-  schedule:
-    - cron: "0 9 * * *"
-      timezone: "Asia/Shanghai"
   workflow_dispatch:
     inputs:
       mode:
