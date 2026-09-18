@@ -108,12 +108,17 @@ def validate_send_context(mode: str, slot: str) -> None:
     expected = {
         "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
-        "GITHUB_REF": "refs/heads/main",
         "GITHUB_ACTOR": "carloshuangspec",
         "GITHUB_TRIGGERING_ACTOR": "carloshuangspec",
         "GITHUB_RUN_ATTEMPT": "1",
     }
     if any(_env(name) != value for name, value in expected.items()):
+        raise ConfigError("GitHub Actions 真发上下文不符合阶段 C 门禁")
+    # live-self may use a temporary isolation branch; live-cn stays main-only.
+    allowed_refs = {"refs/heads/main"}
+    if recipient == "self":
+        allowed_refs.add("refs/heads/build/card-layout-c-self-test")
+    if os.getenv("GITHUB_REF") not in allowed_refs:
         raise ConfigError("GitHub Actions 真发上下文不符合阶段 C 门禁")
 
 
