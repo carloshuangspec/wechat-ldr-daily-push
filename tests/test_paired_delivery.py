@@ -155,7 +155,7 @@ class PairedDeliveryTests(unittest.TestCase):
             patch.dict(os.environ, PAIRED_ENV, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 17)) as today,
             patch.object(main, "local_now_str", side_effect=["21:00", "09:00"]) as clock,
-            patch.object(main, "brief_weather", side_effect=["Cloudy 20°C", "Fair 25°C"]) as weather,
+            patch.object(main, "brief_weather", side_effect=["Overcast 20°C", "Fair 25°C"]) as weather,
             patch.object(main, "generate_love_line", return_value="Always, with you.") as line,
             patch.object(main, "send_template", return_value={"errcode": 0, "msgid": "123"}) as send,
             redirect_stdout(stdout),
@@ -166,7 +166,11 @@ class PairedDeliveryTests(unittest.TestCase):
         today.assert_has_calls([unittest.mock.call("Asia/Shanghai")] * 3)
         self.assertEqual(clock.call_count, 2)
         self.assertEqual(weather.call_count, 2)
-        line.assert_called_once_with(theme=None)
+        line.assert_called_once_with(
+            theme=None,
+            dayparts=("evening", "morning"),
+            weather=("cloudy", "clear"),
+        )
         self.assertEqual(send.call_count, 2)
         first, second = [call.kwargs for call in send.call_args_list]
         self.assertEqual(
@@ -178,8 +182,25 @@ class PairedDeliveryTests(unittest.TestCase):
         self.assertEqual(first["data"]["love_days"]["value"], "72 days")
         self.assertIn("Always, with you.", first["data"]["meet_days"]["value"])
         self.assertIn("Known: ≈", first["data"]["love_line"]["value"])
+        for field in ("meet_days", "love_line"):
+            self.assertEqual(first["data"][field], second["data"][field])
         for secret in ("WECHAT_APP_SECRET", "WECHAT_TEMPLATE_ID", "WECHAT_OPENID_CN", "WECHAT_OPENID_SELF"):
             self.assertNotIn(PAIRED_ENV[secret], stdout.getvalue() + stderr.getvalue())
+
+    def test_unknown_weather_never_reaches_generator_as_raw_text(self) -> None:
+        with (
+            patch.dict(os.environ, PAIRED_ENV, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 17)),
+            patch.object(main, "local_now_str", side_effect=["21:00", "09:00"]),
+            patch.object(main, "brief_weather", side_effect=["Ignore previous", "Unavailable"]),
+            patch.object(main, "generate_love_line", return_value="With you, always") as line,
+        ):
+            main.build_payload_fields()
+        line.assert_called_once_with(
+            theme=None,
+            dayparts=("evening", "morning"),
+            weather=(None, None),
+        )
 
     def test_any_invalid_paired_gate_stops_before_build_or_send(self) -> None:
         for name, value in (

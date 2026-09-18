@@ -8,6 +8,7 @@ import sys
 from datetime import date
 
 from daily_content import choose_line, parse_config
+from daily_context import daypart, weather_cue
 from dates import local_now_str, local_today, love_days, meet_status
 from deepseek_line import generate_love_line
 from weather import brief_weather, weather_source
@@ -185,12 +186,18 @@ def build_payload_fields() -> dict[str, str]:
 
     weather_a = brief_weather(city_a)
     weather_b = brief_weather(city_b)
+    time_a = local_now_str(tz_a)
+    time_b = local_now_str(tz_b)
     known_suffix = f"\nKnown: ≈{known_days} days"
     if exact is not None:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
     else:
-        short_line = generate_love_line(theme=theme)
+        short_line = generate_love_line(
+            theme=theme,
+            dayparts=(daypart(time_a), daypart(time_b)),
+            weather=(weather_cue(weather_a), weather_cue(weather_b)),
+        )
     if (
         not isinstance(short_line, str)
         or not 1 <= len(short_line) <= 20
@@ -205,8 +212,6 @@ def build_payload_fields() -> dict[str, str]:
         raise ConfigError("Love line exceeds template limit")
 
     ld = love_days(love_start, today=today)
-    time_a = local_now_str(tz_a)
-    time_b = local_now_str(tz_b)
     recipient_hour = int((time_b if slot == "cn" else time_a).split(":", 1)[0])
     if os.getenv("LIVE_RECIPIENT") == "both":
         greeting = "Hello, love!"
