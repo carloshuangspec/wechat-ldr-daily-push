@@ -1202,7 +1202,7 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_timezone_schedules_and_matching_conditions(self) -> None:
         self.assertNotIn('cron: "0 9 * * *"', self.workflow)
-        self.assertIn('timezone: "Asia/Shanghai"', self.workflow)
+        self.assertNotIn('timezone: "Asia/Shanghai"', self.workflow)  # was only on removed schedule
         self.assertEqual(self.workflow.count('    - cron: "0 9 * * *"'), 0)
         self.assertNotIn('timezone: "America/Detroit"', self.workflow)
         self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 6)
