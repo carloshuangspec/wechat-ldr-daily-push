@@ -76,13 +76,19 @@ def _request_line(
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
         return None, "invalid_response"
     line = message["content"].strip(" ")
-    if (
-        not 1 <= len(line) <= 20
-        or not line.isascii()
-        or not line.isprintable()
-        or line[0] in "\"'"
-        or line[-1] in "\"'"
-    ):
+    rejects = []
+    if not line:
+        rejects.append("empty")
+    elif len(line) > 20:
+        rejects.append("too_long")
+    if not line.isascii():
+        rejects.append("non_ascii")
+    if not line.isprintable():
+        rejects.append("non_printable")
+    if line and (line[0] in "\"'" or line[-1] in "\"'"):
+        rejects.append("quoted")
+    if rejects:
+        print(f"line_reject={','.join(rejects)}", file=sys.stderr)
         return None, "invalid_text"
     return line, None
 

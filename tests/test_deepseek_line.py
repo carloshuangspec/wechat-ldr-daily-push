@@ -288,10 +288,11 @@ class DeepSeekLineTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "line_failure=request_failed\n")
 
     def test_failure_diagnostics_are_fixed_categories_only(self) -> None:
-        cases = ((self.response(status=402), "http_402"),
-                 (self.response(content="This line has far too many characters"), "invalid_text"),
-                 (self.response(finish="length"), "abnormal_finish"))
-        for response, category in cases:
+        cases = ((self.response(status=402), "http_402", ""),
+                 (self.response(content="This line has far too many characters"),
+                  "invalid_text", "line_reject=too_long\n" * 3),
+                 (self.response(finish="length"), "abnormal_finish", ""))
+        for response, category, rejections in cases:
             stderr = StringIO()
             with (
                 self.subTest(category=category),
@@ -301,7 +302,7 @@ class DeepSeekLineTests(unittest.TestCase):
             ):
                 with self.assertRaises(DeepSeekLineError):
                     generate_love_line()
-            self.assertEqual(stderr.getvalue(), f"line_failure={category}\n")
+            self.assertEqual(stderr.getvalue(), f"{rejections}line_failure={category}\n")
 
     def test_bad_first_text_is_regenerated_before_any_send(self) -> None:
         with (
@@ -314,7 +315,7 @@ class DeepSeekLineTests(unittest.TestCase):
         ):
             self.assertEqual(generate_love_line(), "Miss you today")
         self.assertEqual(post.call_count, 2)
-        self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
+        self.assertEqual(stderr.getvalue(), "line_reject=too_long\nline_source=deepseek\n")
 
     def test_three_bad_texts_fail_without_a_fallback(self) -> None:
         with (
@@ -325,7 +326,32 @@ class DeepSeekLineTests(unittest.TestCase):
             with self.assertRaises(DeepSeekLineError):
                 generate_love_line()
         self.assertEqual(post.call_count, 3)
-        self.assertEqual(stderr.getvalue(), "line_failure=invalid_text\n")
+        self.assertEqual(
+            stderr.getvalue(), "line_reject=too_long\n" * 3 + "line_failure=invalid_text\n"
+        )
+
+    def test_invalid_text_reports_fixed_rejection_reasons_without_body(self) -> None:
+        stderr = StringIO()
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", side_effect=[
+                self.response(content='"A very long SECRET_BODY ☀"'),
+                self.response(content="Hello\nworld"),
+                self.response(content='"Hello"'),
+            ]) as post,
+            redirect_stderr(stderr),
+        ):
+            with self.assertRaises(DeepSeekLineError):
+                generate_love_line()
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(
+            stderr.getvalue(),
+            "line_reject=too_long,non_ascii,quoted\n"
+            "line_reject=non_printable\n"
+            "line_reject=quoted\n"
+            "line_failure=invalid_text\n",
+        )
+        self.assertNotIn("SECRET_BODY", stderr.getvalue())
 
     def test_http_error_is_not_regenerated(self) -> None:
         with (
