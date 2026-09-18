@@ -122,12 +122,11 @@ class DailyScheduleTests(unittest.TestCase):
         build.assert_not_called()
         send.assert_not_called()
 
-    def test_workflow_one_shanghai_schedule_and_isolated_self_job(self) -> None:
+    def test_workflow_has_no_github_schedule_and_isolated_self_job(self) -> None:
         workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
-        schedule = workflow.split('  schedule:\n', 1)[1].split('  workflow_dispatch:', 1)[0]
-        self.assertEqual(schedule.count('cron: "0 9 * * *"'), 0)
-        self.assertIn('timezone: "Asia/Shanghai"', schedule)
-        self.assertNotIn('America/Detroit', schedule)
+        self.assertNotIn("\n  schedule:\n", workflow)
+        self.assertNotIn('cron: "0 9 * * *"', workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn("  scheduled-self:", workflow)
         job = workflow.split("  scheduled-self:\n", 1)[1].split("  claim-daily:\n", 1)[0]
         for fragment in (
