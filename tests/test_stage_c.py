@@ -1409,7 +1409,15 @@ class WorkflowPolicyTests(unittest.TestCase):
                 self.assertIn(f"inputs.slot == '{slot}'", job)
                 self.assertIn(f"inputs.confirmation == '{confirmation}'", job)
                 self.assertIn("github.repository == 'carloshuangspec/wechat-ldr-daily-push'", job)
-                self.assertIn("github.ref == 'refs/heads/main'", job)
+                if mode == "live-self":
+                    self.assertIn(
+                        "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/build/card-layout-c-self-test')",
+                        job,
+                    )
+                    self.assertNotIn("github.ref == 'refs/heads/main' &&", job.split("github.repository")[1][:400])
+                else:
+                    self.assertIn("github.ref == 'refs/heads/main'", job)
+                    self.assertNotIn("card-layout-c-self-test", job)
                 self.assertIn("github.actor == 'carloshuangspec'", job)
                 self.assertIn("github.triggering_actor == 'carloshuangspec'", job)
                 self.assertIn("github.run_attempt == '1'", job)
