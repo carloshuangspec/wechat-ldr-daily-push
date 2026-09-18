@@ -166,6 +166,11 @@ def generate_love_line(
             ]
             if known_weather:
                 prompt += f" Anonymous weather cues: {'; '.join(known_weather)}."
+    prompt += (
+        " Final output check: aim for 8 to 16 printable ASCII characters total, "
+        "including spaces and punctuation. Never exceed 20. "
+        "Silently rewrite a longer draft before replying; return only the short line."
+    )
 
     for attempt in range(3):
         line, failure = _request_line(key, prompt, timeout)

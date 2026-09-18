@@ -155,6 +155,27 @@ class DeepSeekLineTests(unittest.TestCase):
                 self.assertNotIn(default_only, prompt)
         self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
 
+    def test_final_prompt_reminder_targets_well_below_the_hard_character_limit(self) -> None:
+        for context in (
+            {"dayparts": ("evening", "morning"), "weather": ("cloudy", "clear")},
+            {"theme": "ordinary days"},
+        ):
+            with (
+                self.subTest(context=context),
+                patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+                patch.object(requests, "post", return_value=self.response()) as post,
+                redirect_stderr(StringIO()),
+            ):
+                generate_love_line(**context)
+            prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+            self.assertTrue(
+                prompt.endswith(
+                    "Final output check: aim for 8 to 16 printable ASCII characters total, "
+                    "including spaces and punctuation. Never exceed 20. "
+                    "Silently rewrite a longer draft before replying; return only the short line."
+                )
+            )
+
     def test_manual_theme_ignores_malformed_context_entirely(self) -> None:
         for context in (
             {"dayparts": ("morning", ["UNTRUSTED_CLOCK"])},
