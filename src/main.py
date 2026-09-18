@@ -213,26 +213,22 @@ def build_payload_fields() -> dict[str, str]:
         or contains_forbidden_note_label(short_line)
     ):
         raise ConfigError("Invalid English love line")
-    # Keep the full untitled letter in love_line, and mirror a card-safe excerpt
-    # beside the countdown: this is the field the test-account card has shown.
+    # Mirror the complete line beside the countdown, never an unfinished excerpt.
+    # This is the field the test-account phone card has actually shown.
     love_line = short_line
     if len(love_line) > LOVE_LINE_MAX:
         raise ConfigError("Love line exceeds template limit")
     countdown = meet_status(next_meet, today=today)
     available = LOVE_LINE_MAX - len(countdown) - len(" | ")
-    if available < 4:
+    if available < 1:
         raise ConfigError("Meeting field has no room for the love line")
-    # Manual exact keeps its original value in love_line; discard incidental
-    # edge spaces only for the shorter card mirror so it cannot become "...".
+    # Preserve a manual exact verbatim in love_line; only trim incidental edge
+    # spaces on the mirrored version, then reject rather than abbreviate.
     visible_line = short_line.strip()
     if not visible_line:
         raise ConfigError("Love line has no visible text")
     if len(visible_line) > available:
-        excerpt = visible_line[: available - 3].rstrip()
-        last_space = excerpt.rfind(" ")
-        if last_space >= len(excerpt) // 2:
-            excerpt = excerpt[:last_space]
-        visible_line = excerpt + "..."
+        raise ConfigError("Love line exceeds visible meeting field")
 
     greeting = f"Known: ≈{known_days} days"
     if len(greeting) > 20:

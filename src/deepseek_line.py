@@ -68,19 +68,23 @@ def build_love_line_prompt(
 ) -> str:
     """Build the dual-reader generation prompt; never include secrets or city names."""
     prompt = (
-        "Write ONE original English letter line for a couple who both receive the same message.\n"
+        "Write ONE original, romantic English sentence from me to my girlfriend; "
+        "both receive the same message.\n"
         "\n"
         "Hard limits:\n"
         f"- Max {ENGLISH_LINE_MAX} printable ASCII characters "
         "(letters, digits, spaces, basic punctuation only).\n"
         "- No emojis, no non-ASCII.\n"
         "- Untitled: do not prefix with Note: or any other label.\n"
+        "- A complete sentence directly expressing tender love, longing, or choosing her. "
+        "Address her as you; end with a period, !, or ?. Never use an ellipsis or an unfinished thought.\n"
         "- Fresh each day; do not reuse a fixed phrase library or stock romance cliches.\n"
         "- Do not invent private memories, ordinary life events (coffee/commute), "
-        "names, places, or either person's feelings.\n"
-        "- You may only use provided facts: each side's local daypart and cityless weather phrases.\n"
+        "names, places, or the girlfriend's feelings. The speaker may express his own affection.\n"
+        "- The only situational facts you may use are each side's local daypart and cityless weather phrases.\n"
         "- If a manual theme is provided, follow it within the hard limits; otherwise pick one tone: "
         "timezone handoff, no-pressure ping, weather/time detail, gentle humor, or (rarely) a tiny optional question.\n"
+        "- Whatever the tone, make her feel loved; weather/time is only background, not the point.\n"
         "- A continuous shared-garden story vibe is OCCASIONAL only - not a daily check-in ritual.\n"
         "\n"
         "Timezone handoff must read well for BOTH recipients in one line "
@@ -171,6 +175,8 @@ def _request_line(
         return None, "invalid_text"
     if contains_forbidden_note_label(line):
         return None, "forbidden_label"
+    if line[-1] not in ".!?" or "..." in line:
+        return None, "invalid_text"
     return line, None
 
 

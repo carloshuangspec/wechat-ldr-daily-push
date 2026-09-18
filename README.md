@@ -2,7 +2,7 @@
 
 双城天气 + 当地时间 + 相爱天数 + 见面倒计时 + 一句英文情话，经微信测试号模板消息推送。默认城市是 `Ann Arbor` / `Shanghai`。
 
-当前处于“阶段 C”：此前单人手动真发已有微信 API 接受结果，本人手机也曾看到英文情话；样稿 C 的手机卡片曾漏显情话，本次可见性修复仍须本人手机复验。Grok 的例程已启用，每天上海 09:00 只负责拉起本仓库 `main` 上的 `daily-both`；GitHub Actions 组装同一份内容并依次调用微信接口发送给两人。仓库自身不再配置定时触发；两部手机收到及显示同一句的本次结果仍须分别验收。
+当前处于“阶段 C”：本人单条手动真发已有微信 API 接受结果；手机实测发现倒计时旁的情话被程序截成 `...`，因此改为完整短句或安全拒发，改后手机呈现仍待复验。Grok 的例程已启用，每天上海 09:00 只负责拉起本仓库 `main` 上的 `daily-both`；GitHub Actions 组装同一份内容并依次调用微信接口发送给两人。仓库自身不再配置定时触发；两部手机收到及显示同一句的本次结果仍须分别验收。
 
 ## 安全运行模式
 
@@ -51,7 +51,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。双端真发是两次顺序调用微信接口，并非原子事务或两部手机同时送达；第一人成功而第二人失败时，日志应保留第一人的脱敏接受状态，不盲目重试整个任务，以免重复发送。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认先前手动测试，CN 手机与首次双端定时运行尚未确认。若发现收件人或内容错误，应立即关闭对应的每日开关并排查，不自动重发。
 
-若手机收到了消息却看不到独立的英文短笺，先运行 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，不能据此推断模板字段缺失。即使字段存在，也不能保证手机卡片显示它。为恢复曾在卡片上实际看到的情话位置，`meet_days` 现在附加同一条情话；超长时仅这一处尽量在单词边界缩短并加 `...`，`love_line` 仍保留完整原句。两个字段若都显示，卡片可能重复，须以一次本人手机试发核对；不要盲目重发。可用 `preview-both`（`mode=preview`、`slot=both`）先核对字段组装。
+若手机收到了消息却看不到独立的英文短笺，先运行 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，不能据此推断模板字段缺失。即使字段存在，也不能保证手机卡片显示它。`meet_days` 镜像同一条完整情话，绝不由程序截断加 `...`；超出倒计时旁的可见预算则整条安全失败，不发送半句话。两个字段若都显示，卡片可能重复，须以本人手机核对；不要盲目重发。可用 `preview-both`（`mode=preview`、`slot=both`）先核对字段组装。
 
 ## 配置：必填与可选
 
@@ -93,9 +93,9 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
-每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 64 个可打印 ASCII 字符的英文短笺（样稿 C：无 `Note:` 等标签前缀；Known 已移入 `greeting`），同一句发给两位收件人。提示词要求双边可读：可用两端当地时段（morning/afternoon/evening/night）与无城市名天气短语作事实，不得编造私密回忆、普通生活事件（如咖啡/通勤）、地名或对方感受；无手动主题时在「跨时区交班 / 无压力惦念 / 天气时段细节 / 温柔轻幽默 / 偶尔可跳过的小问题」中择一，**Garden 连续故事感仅偶尔使用**，不是每日打卡仪式，也不是固定句库。有手动 `theme` 时优先服从主题并仍受硬性边界约束；有效 `exact` 跳过 AI。正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。若仅文案不合格，会在任何微信发送前最多再生成两次；三次仍不合格或接口/鉴权失败则跳过整条，不替换固定句子，**绝不自动重试微信发送**。失败日志只记录固定类别（如 `invalid_text`），不包含响应正文。ASCII 校验不能百分之百判定语义是否英语，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
+每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 48 个可打印 ASCII 字符、句尾完整的原创英文情话（无 `Note:` 标签；Known 在 `greeting`），同一句发给两位收件人。提示词要求直接表达对她的爱意、思念或珍惜，而不是天气简报或泛泛问候；两端当地时段与无城市名天气只作背景，不得编造私密回忆、普通生活事件（如咖啡/通勤）、地名或对方感受。无手动主题时可选不同语气，**Garden 连续故事感仅偶尔使用**，不是每日打卡仪式，也不是固定句库。有手动 `theme` 时优先服从主题并仍受硬性边界约束；有效 `exact` 跳过 AI。正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。若仅文案不合格，会在任何微信发送前最多再生成两次；三次仍不合格或接口/鉴权失败则跳过整条，不替换固定句子，**绝不自动重试微信发送**。失败日志只记录固定类别（如 `invalid_text`），不包含响应正文。长度、标点和 ASCII 校验不能百分之百判定感情质量，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
 
-想调整某个上海日期的内容，可在 Mac 上双击 `scripts/edit-daily-message.command`，填日期（默认上海今天）、可选主题 `theme`、可选手写英文原句 `exact`；至少填一项。`theme` 最多 120 字符，可写中英文，会发给 DeepSeek 引导生成；`exact` 必须为单行 1–64 个可打印 ASCII 字符，优先级高于主题且不请求 AI，原样进入消息。工具本地显示输入供确认后，仅通过标准输入将单个 JSON 对象写入 `DAILY_MESSAGE_CONFIG` Secret，不写入 Git 历史或临时文件。替换时需重新填完整内容，不能从 GitHub Secret 读回；工具可经单独确认删除此 Secret。日期不匹配的旧配置会被忽略，格式无效的配置会让运行安全失败。这个 Secret 加载到 CN 单人或双端共用的预览和发送 job；SELF/US 单人路径不读取。
+想调整某个上海日期的内容，可在 Mac 上双击 `scripts/edit-daily-message.command`，填日期（默认上海今天）、可选主题 `theme`、可选手写英文原句 `exact`；至少填一项。`theme` 最多 120 字符，可写中英文，会发给 DeepSeek 引导生成；`exact` 必须为单行 1–48 个可打印 ASCII 字符，优先级高于主题且不请求 AI，原样进入独立 `love_line` 字段、去掉两端空格后完整镜像到倒计时旁；若倒计时太长仍放不下，则安全拒发，绝不截句。工具本地显示输入供确认后，仅通过标准输入将单个 JSON 对象写入 `DAILY_MESSAGE_CONFIG` Secret，不写入 Git 历史或临时文件。替换时需重新填完整内容，不能从 GitHub Secret 读回；工具可经单独确认删除此 Secret。日期不匹配的旧配置会被忽略，格式无效的配置会让运行安全失败。这个 Secret 加载到 CN 单人或双端共用的预览和发送 job；SELF/US 单人路径不读取。
 
 GitHub 在工作流**排队时**读取仓库 Secret，故要在下一次 run 排队前完成编辑；排队后再更新或删除，不会更改那一次运行。DeepSeek [官方缓存说明](https://api-docs.deepseek.com/guides/kv_cache/)指出输入/输出前缀可能写入缓存，不要在主题中填写未经双方同意的聊天档案、凭据或第三方隐私。`exact` 不送 DeepSeek，但最终微信消息及当前预览日志都会展示它；Secret 的加密不隐藏已渲染的预览内容，仓库日志读取者可见。
 
@@ -114,7 +114,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。无 Hello / Good morning 等问候语；`greeting` 字段本身是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 是见面倒计时加 ` | ` 和同一条情话的可见版本，总长 ≤64；`love_line` 保留无标题英文原句（不加 `Note:` 或 Known），≤64 可打印 ASCII。手机是否显示 `greeting` / `love_line` 取决于在线测试号模板；`weather_source` 在卡片上也可能不显示，须核对手机实际呈现：
+测试号模板字段必须与下面一致，固定标签请用英文。无 Hello / Good morning 等问候语；`greeting` 字段本身是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 是见面倒计时加 ` | ` 和同一条完整情话，总长 ≤64；`love_line` 保留无标题英文原句（不加 `Note:` 或 Known），长度 ≤48。手机是否显示 `greeting` / `love_line` 取决于在线测试号模板；`weather_source` 在卡片上也可能不显示，须核对手机实际呈现：
 
 ```text
 {{greeting.DATA}}
