@@ -15,8 +15,9 @@ class DailyContentError(ValueError):
         super().__init__("Invalid daily content configuration.")
 
 
-# English letter alone fills love_line (Known moved to greeting). Cap matches wechat love_line ≤64.
-ENGLISH_LINE_MAX = 64
+# Leave room for the countdown and separator in the phone-visible meet_days field.
+# The independent love_line field may not be shown by the test-account card.
+ENGLISH_LINE_MAX = 48
 LOVE_LINE_MAX = 64
 
 # Hard-reject literal Note: (N-o-t-e + ASCII colon), case-insensitive. Fail closed; never strip.

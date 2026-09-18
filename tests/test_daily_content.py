@@ -114,11 +114,15 @@ class ParseConfigTests(unittest.TestCase):
                 parse_config(json.dumps({"date": "2026-09-16", "exact": exact}))
 
     def test_accepts_printable_ascii_exact_at_limit(self) -> None:
-        exact = "A" * 64
+        exact = "A" * 48
         self.assertEqual(
             parse_config(json.dumps({"date": "2026-09-16", "exact": exact})),
             {"date": "2026-09-16", "exact": exact},
         )
+
+    def test_rejects_manual_exact_that_would_need_card_ellipsis(self) -> None:
+        with self.assertRaises(DailyContentError):
+            validate_inputs("2026-09-16", None, "I" * 49)
 
     def test_rejects_exact_with_literal_note_label(self) -> None:
         for exact in (

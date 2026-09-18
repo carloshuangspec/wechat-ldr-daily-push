@@ -1250,7 +1250,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("`ENABLE_CN_DAILY`", readme)
         self.assertIn("`ENABLE_SELF_DAILY`", readme)
         self.assertIn("`1`", readme)
-        self.assertIn("本人手机也曾看到英文情话", readme)
+        self.assertIn("手机实测发现倒计时旁的情话被程序截成", readme)
         self.assertIn("两部手机收到及显示同一句的本次结果仍须分别验收", readme)
         self.assertIn("上海 09:00", readme)
         self.assertIn("`daily-both`", readme)
