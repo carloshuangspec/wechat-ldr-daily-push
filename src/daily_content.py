@@ -15,6 +15,10 @@ class DailyContentError(ValueError):
         super().__init__("Invalid daily content configuration.")
 
 
+# English letter body alone. love_line = body + "\nKnown: ≈N days" must stay ≤64 (wechat.py).
+ENGLISH_LINE_MAX = 42
+LOVE_LINE_MAX = 64
+
 _DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _FIELDS = frozenset({"date", "theme", "exact"})
 
@@ -48,7 +52,7 @@ def validate_inputs(day: str, theme: str | None, exact: str | None) -> dict[str,
     if exact is not None and exact != "":
         if (
             not isinstance(exact, str)
-            or not 1 <= len(exact) <= 20
+            or not 1 <= len(exact) <= ENGLISH_LINE_MAX
             or not exact.strip()
             or any(not 32 <= ord(char) <= 126 for char in exact)
         ):

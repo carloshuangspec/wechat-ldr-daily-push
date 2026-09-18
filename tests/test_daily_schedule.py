@@ -87,7 +87,7 @@ class DailyScheduleTests(unittest.TestCase):
             patch.object(
                 main,
                 "build_payload_fields",
-                return_value={"meet_days": "in 95 days | Hello", "love_line": "Hello"},
+                return_value={"meet_days": "in 95 days", "love_line": "Hello\nKnown: ≈1 days"},
             ),
             patch.object(
                 main,

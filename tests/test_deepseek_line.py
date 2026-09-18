@@ -12,7 +12,14 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from deepseek_line import DeepSeekLineError, generate_love_line  # noqa: E402
+from daily_content import ENGLISH_LINE_MAX  # noqa: E402
+from deepseek_line import (  # noqa: E402
+    DeepSeekLineError,
+    build_love_line_prompt,
+    daypart_from_hhmm,
+    generate_love_line,
+    sanitize_weather_fact,
+)
 
 
 class DeepSeekLineTests(unittest.TestCase):
@@ -62,22 +69,59 @@ class DeepSeekLineTests(unittest.TestCase):
         self.assertIn("ordinary days", post.call_args.kwargs["json"]["messages"][0]["content"])
         self.assertNotIn("ordinary days", stderr.getvalue())
 
-    def test_prompt_asks_for_a_tender_personal_line_without_inventing_details(self) -> None:
+    def test_prompt_asks_for_dual_reader_line_without_inventing_details(self) -> None:
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.response(content="I choose you, always")) as post,
+            patch.object(requests, "post", return_value=self.response(content="Still here with you")) as post,
             redirect_stderr(StringIO()),
         ):
-            self.assertEqual(generate_love_line(), "I choose you, always")
+            self.assertEqual(
+                generate_love_line(
+                    time_a="21:00",
+                    time_b="09:00",
+                    weather_a="Cloudy 20C",
+                    weather_b="Fair 25C",
+                ),
+                "Still here with you",
+            )
         prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
-        self.assertIn("emotionally intimate", prompt)
-        self.assertIn("long-distance partner", prompt)
-        self.assertIn("directly to you", prompt)
-        self.assertIn("at most 20 printable ASCII characters", prompt)
-        self.assertIn("Do not invent shared memories", prompt)
-        self.assertIn("the other person's thoughts", prompt)
-        self.assertNotIn("ordinary moments", prompt)
+        self.assertIn("both receive the same message", prompt)
+        self.assertIn(f"Max {ENGLISH_LINE_MAX} printable ASCII characters", prompt)
+        self.assertIn("Do not invent private memories", prompt)
+        self.assertIn("either person's feelings", prompt)
+        self.assertIn("timezone handoff", prompt)
+        self.assertIn("no-pressure ping", prompt)
+        self.assertIn("side_a_daypart=evening", prompt)
+        self.assertIn("side_b_daypart=morning", prompt)
+        self.assertIn("side_a_weather=Cloudy 20C", prompt)
+        self.assertIn("side_b_weather=Fair 25C", prompt)
+        self.assertNotIn("emotionally intimate", prompt)
+        self.assertNotIn("Ann Arbor", prompt)
+        self.assertNotIn("Shanghai", prompt)
         self.assertNotIn("at most 16", prompt)
+        self.assertIn("OCCASIONAL only", prompt)
+        self.assertIn("Note:", prompt)  # instruction forbids Note: label
+        self.assertIn("fixed phrase library", prompt)
+
+    def test_daypart_and_weather_helpers(self) -> None:
+        self.assertEqual(daypart_from_hhmm("09:00"), "morning")
+        self.assertEqual(daypart_from_hhmm("15:30"), "afternoon")
+        self.assertEqual(daypart_from_hhmm("21:00"), "evening")
+        self.assertEqual(daypart_from_hhmm("23:10"), "night")
+        self.assertIsNone(daypart_from_hhmm("bad"))
+        self.assertEqual(sanitize_weather_fact("Cloudy 20°C"), "Cloudy 20C")
+        self.assertIsNone(sanitize_weather_fact("Unavailable"))
+        self.assertIsNone(sanitize_weather_fact("Weather offline"))
+        prompt = build_love_line_prompt(
+            daypart_a="morning",
+            daypart_b="evening",
+            weather_a="Clear 10C",
+            weather_b=None,
+        )
+        self.assertIn("side_a_daypart=morning", prompt)
+        self.assertIn("side_b_daypart=evening", prompt)
+        self.assertIn("side_a_weather=Clear 10C", prompt)
+        self.assertNotIn("side_b_weather=", prompt)
 
     def test_bad_theme_fails_before_request(self) -> None:
         for theme in ("  ", "a\nb", "x" * 121):
@@ -99,7 +143,7 @@ class DeepSeekLineTests(unittest.TestCase):
             '"Hello"',
             "'Hello'",
             "你很好",
-            "A" * 21,
+            "A" * (ENGLISH_LINE_MAX + 1),
             123,
             "Hi\tthere",
         ):
@@ -159,7 +203,7 @@ class DeepSeekLineTests(unittest.TestCase):
 
     def test_failure_diagnostics_are_fixed_categories_only(self) -> None:
         cases = ((self.response(status=402), "http_402"),
-                 (self.response(content="This line has far too many characters"), "invalid_text"),
+                 (self.response(content="This letter line is intentionally way too long for the budget"), "invalid_text"),
                  (self.response(finish="length"), "abnormal_finish"))
         for response, category in cases:
             stderr = StringIO()
@@ -177,7 +221,7 @@ class DeepSeekLineTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", side_effect=[
-                self.response(content="This is much too long for the short line"),
+                self.response(content="This letter is intentionally far too long for our ASCII budget"),
                 self.response(content="Miss you today"),
             ]) as post,
             redirect_stderr(StringIO()) as stderr,
@@ -189,7 +233,7 @@ class DeepSeekLineTests(unittest.TestCase):
     def test_three_bad_texts_fail_without_a_fallback(self) -> None:
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.response(content="A" * 21)) as post,
+            patch.object(requests, "post", return_value=self.response(content="A" * (ENGLISH_LINE_MAX + 1))) as post,
             redirect_stderr(StringIO()) as stderr,
         ):
             with self.assertRaises(DeepSeekLineError):
@@ -206,6 +250,16 @@ class DeepSeekLineTests(unittest.TestCase):
             with self.assertRaises(DeepSeekLineError):
                 generate_love_line()
         post.assert_called_once()
+
+
+    def test_english_line_at_new_max_is_accepted(self) -> None:
+        line = "A" * ENGLISH_LINE_MAX
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response(content=line)),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(generate_love_line(), line)
 
 
 if __name__ == "__main__":

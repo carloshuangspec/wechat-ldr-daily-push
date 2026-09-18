@@ -166,7 +166,13 @@ class PairedDeliveryTests(unittest.TestCase):
         today.assert_has_calls([unittest.mock.call("Asia/Shanghai")] * 3)
         self.assertEqual(clock.call_count, 2)
         self.assertEqual(weather.call_count, 2)
-        line.assert_called_once_with(theme=None)
+        line.assert_called_once_with(
+            theme=None,
+            time_a="21:00",
+            time_b="09:00",
+            weather_a="Cloudy 20°C",
+            weather_b="Fair 25°C",
+        )
         self.assertEqual(send.call_count, 2)
         first, second = [call.kwargs for call in send.call_args_list]
         self.assertEqual(
@@ -176,7 +182,8 @@ class PairedDeliveryTests(unittest.TestCase):
         self.assertIs(first["data"], second["data"])
         self.assertEqual(first["data"]["greeting"]["value"], "Hello, love!")
         self.assertEqual(first["data"]["love_days"]["value"], "72 days")
-        self.assertIn("Always, with you.", first["data"]["meet_days"]["value"])
+        self.assertEqual(first["data"]["meet_days"]["value"], "in 94 days")
+        self.assertTrue(first["data"]["love_line"]["value"].startswith("Always, with you.\n"))
         self.assertIn("Known: ≈", first["data"]["love_line"]["value"])
         for secret in ("WECHAT_APP_SECRET", "WECHAT_TEMPLATE_ID", "WECHAT_OPENID_CN", "WECHAT_OPENID_SELF"):
             self.assertNotIn(PAIRED_ENV[secret], stdout.getvalue() + stderr.getvalue())
@@ -287,7 +294,7 @@ class PairedDeliveryTests(unittest.TestCase):
         with (
             patch.dict(os.environ, PAIRED_ENV, clear=True),
             patch.object(main, "local_today", side_effect=[date(2026, 9, 17), date(2026, 9, 18)]),
-            patch.object(main, "build_payload_fields", return_value={"meet_days": "today | Hello", "love_line": "Hello"}),
+            patch.object(main, "build_payload_fields", return_value={"meet_days": "today", "love_line": "Hello\nKnown: ≈1 days"}),
             patch.object(main, "send_template") as send,
             redirect_stderr(StringIO()),
         ):
@@ -316,7 +323,7 @@ class PairedDeliveryTests(unittest.TestCase):
         with (
             patch.dict(os.environ, PAIRED_ENV, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 17)),
-            patch.object(main, "build_payload_fields", return_value={"meet_days": "today | Hello", "love_line": "Hello"}),
+            patch.object(main, "build_payload_fields", return_value={"meet_days": "today", "love_line": "Hello\nKnown: ≈1 days"}),
             patch.object(main, "send_template", side_effect=[{"errcode": 0, "msgid": "123"}, RuntimeError("TEST_SECRET_NOT_FOR_LOGS")]) as send,
             redirect_stdout(stdout),
             redirect_stderr(stderr),
@@ -351,7 +358,10 @@ class PairedDeliveryTests(unittest.TestCase):
         for call in send.call_args_list:
             self.assertEqual(
                 call.kwargs["data"]["meet_days"]["value"],
-                "in 94 days | One page at a time",
+                "in 94 days",
+            )
+            self.assertTrue(
+                call.kwargs["data"]["love_line"]["value"].startswith("One page at a time\n")
             )
 
     def test_paired_preview_has_neutral_greeting_without_wechat_credentials(self) -> None:
