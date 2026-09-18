@@ -2,9 +2,6 @@
 name: daily-push
 
 "on":
-  schedule:
-    - cron: "0 9 * * *"
-      timezone: "Asia/Shanghai"
   workflow_dispatch:
     inputs:
       mode:
