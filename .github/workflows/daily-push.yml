@@ -1,4 +1,4 @@
-# 上海 09:00 定时：双开关同时开启时生成一份内容，分别发给两端。
+# 双端每日：受控 workflow_dispatch（如 Grok）；双开关同时开启时生成一份内容分别发给两端。仓库不再注册 schedule cron。
 name: daily-push
 
 "on":
