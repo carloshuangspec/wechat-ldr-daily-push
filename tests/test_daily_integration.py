@@ -34,16 +34,18 @@ class DailyIntegrationTests(unittest.TestCase):
             patch.object(main, "generate_love_line", return_value="I ache for you."),
         ):
             fields = main.build_payload_fields()
-        self.assertEqual(fields["meet_days"], "in 95 days | I ache for you.")
+        self.assertEqual(fields["meet_days"], "in 95 days")
         self.assertEqual(
             wechat.build_template_data(fields)["meet_days"]["value"],
-            "in 95 days | I ache for you.",
+            "in 95 days",
         )
-        self.assertEqual(fields["love_line"].split("\n", 1)[0], "I ache for you.")
+        self.assertEqual(fields["love_line"], "I ache for you.")
+        self.assertTrue(fields["greeting"].startswith("Known: ≈"))
+        self.assertNotIn("|", fields["meet_days"])
 
     def test_meeting_field_rejects_truncation_of_emotional_line(self) -> None:
         with self.assertRaises(ValueError):
-            wechat.build_template_data({"meet_days": "in 95 days | " + "X" * 65})
+            wechat.build_template_data({"meet_days": "in 95 days" + "X" * 65})
 
     def test_exact_cn_line_bypasses_provider_and_survives_rendering(self) -> None:
         env = {
@@ -63,8 +65,9 @@ class DailyIntegrationTests(unittest.TestCase):
             fields = main.build_payload_fields()
         generate.assert_not_called()
         today.assert_called_once_with("Asia/Shanghai")
-        self.assertEqual(fields["love_line"], "My favorite day\nKnown: ≈2572 days")
-        self.assertEqual(fields["meet_days"], "in 95 days | My favorite day")
+        self.assertEqual(fields["love_line"], "My favorite day")
+        self.assertEqual(fields["greeting"], "Known: ≈2572 days")
+        self.assertEqual(fields["meet_days"], "in 95 days")
         self.assertEqual(
             wechat.build_template_data(fields)["love_line"]["value"], fields["love_line"]
         )
@@ -80,8 +83,15 @@ class DailyIntegrationTests(unittest.TestCase):
             redirect_stderr(StringIO()),
         ):
             fields = main.build_payload_fields()
-        generate.assert_called_once_with(theme="ordinary days")
-        self.assertTrue(fields["love_line"].startswith("Here with you\nKnown: ≈"))
+        generate.assert_called_once_with(
+            theme="ordinary days",
+            time_a="08:00",
+            time_b="08:00",
+            weather_a="Clear 20°C",
+            weather_b="Clear 20°C",
+        )
+        self.assertEqual(fields["love_line"], "Here with you")
+        self.assertTrue(fields["greeting"].startswith("Known: ≈"))
 
     def test_stale_cn_config_uses_default_prompt(self) -> None:
         env = {**BASE_ENV, "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-15","exact":"Yesterday"}'}
@@ -94,7 +104,13 @@ class DailyIntegrationTests(unittest.TestCase):
             redirect_stderr(StringIO()),
         ):
             main.build_payload_fields()
-        generate.assert_called_once_with(theme=None)
+        generate.assert_called_once_with(
+            theme=None,
+            time_a="08:00",
+            time_b="08:00",
+            weather_a="Clear 20°C",
+            weather_b="Clear 20°C",
+        )
 
     def test_us_ignores_even_malformed_cn_config(self) -> None:
         env = {**BASE_ENV, "PUSH_SLOT": "us", "DAILY_MESSAGE_CONFIG": "{invalid"}
@@ -108,7 +124,13 @@ class DailyIntegrationTests(unittest.TestCase):
         ):
             main.build_payload_fields()
         today.assert_called_once_with("America/Detroit")
-        generate.assert_called_once_with(theme=None)
+        generate.assert_called_once_with(
+            theme=None,
+            time_a="08:00",
+            time_b="08:00",
+            weather_a="Clear 20°C",
+            weather_b="Clear 20°C",
+        )
 
     def test_bad_cn_config_fails_before_weather_or_provider(self) -> None:
         with (

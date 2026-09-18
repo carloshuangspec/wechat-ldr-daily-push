@@ -15,6 +15,19 @@ class DailyContentError(ValueError):
         super().__init__("Invalid daily content configuration.")
 
 
+# English letter alone fills love_line (Known moved to greeting). Cap matches wechat love_line ≤64.
+ENGLISH_LINE_MAX = 64
+LOVE_LINE_MAX = 64
+
+# Hard-reject literal Note: (N-o-t-e + ASCII colon), case-insensitive. Fail closed; never strip.
+_FORBIDDEN_NOTE_LABEL = re.compile(r"note:", re.IGNORECASE)
+
+
+def contains_forbidden_note_label(text: str) -> bool:
+    """True when text contains the forbidden Note: label substring (any letter case)."""
+    return isinstance(text, str) and _FORBIDDEN_NOTE_LABEL.search(text) is not None
+
+
 _DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _FIELDS = frozenset({"date", "theme", "exact"})
 
@@ -48,9 +61,10 @@ def validate_inputs(day: str, theme: str | None, exact: str | None) -> dict[str,
     if exact is not None and exact != "":
         if (
             not isinstance(exact, str)
-            or not 1 <= len(exact) <= 20
+            or not 1 <= len(exact) <= ENGLISH_LINE_MAX
             or not exact.strip()
             or any(not 32 <= ord(char) <= 126 for char in exact)
+            or contains_forbidden_note_label(exact)
         ):
             raise DailyContentError()
         result["exact"] = exact

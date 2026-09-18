@@ -7,7 +7,13 @@ import os
 import sys
 from datetime import date
 
-from daily_content import choose_line, parse_config
+from daily_content import (
+    ENGLISH_LINE_MAX,
+    LOVE_LINE_MAX,
+    choose_line,
+    contains_forbidden_note_label,
+    parse_config,
+)
 from dates import local_now_str, local_today, love_days, meet_status
 from deepseek_line import generate_love_line
 from weather import brief_weather, weather_source
@@ -185,37 +191,41 @@ def build_payload_fields() -> dict[str, str]:
 
     weather_a = brief_weather(city_a)
     weather_b = brief_weather(city_b)
-    known_suffix = f"\nKnown: ≈{known_days} days"
+    # Compute local clocks before generation so DeepSeek can use dayparts.
+    time_a = local_now_str(tz_a)
+    time_b = local_now_str(tz_b)
     if exact is not None:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
     else:
-        short_line = generate_love_line(theme=theme)
+        short_line = generate_love_line(
+            theme=theme,
+            time_a=time_a,
+            time_b=time_b,
+            weather_a=weather_a,
+            weather_b=weather_b,
+        )
     if (
         not isinstance(short_line, str)
-        or not 1 <= len(short_line) <= 20
+        or not 1 <= len(short_line) <= ENGLISH_LINE_MAX
         or not short_line.isascii()
         or not short_line.isprintable()
+        or contains_forbidden_note_label(short_line)
     ):
         raise ConfigError("Invalid English love line")
-    # Keep the dedicated field, and mirror the line in the meeting field that
-    # the test-account card is known to display.
-    love_line = short_line + known_suffix
-    if len(love_line) > 64:
+    # 样稿 C (confirmed): Known duration lives in greeting; love_line is untitled
+    # English letter only (no Note:/Known). meet_days remains countdown-only.
+    love_line = short_line
+    if len(love_line) > LOVE_LINE_MAX:
         raise ConfigError("Love line exceeds template limit")
 
+    greeting = f"Known: ≈{known_days} days"
+    if len(greeting) > 20:
+        greeting = f"Known ≈{known_days}d"
+    if len(greeting) > 20:
+        raise ConfigError("Known greeting exceeds template limit")
+
     ld = love_days(love_start, today=today)
-    time_a = local_now_str(tz_a)
-    time_b = local_now_str(tz_b)
-    recipient_hour = int((time_b if slot == "cn" else time_a).split(":", 1)[0])
-    if os.getenv("LIVE_RECIPIENT") == "both":
-        greeting = "Hello, love!"
-    elif 5 <= recipient_hour < 12:
-        greeting = "Good morning, love!"
-    elif 12 <= recipient_hour < 18:
-        greeting = "Afternoon, love!"
-    else:
-        greeting = "Good evening, love!"
     fields = {
         "greeting": greeting,
         "city_a": city_a,
@@ -225,13 +235,14 @@ def build_payload_fields() -> dict[str, str]:
         "time_b": time_b,
         "weather_b": weather_b,
         "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
-        "meet_days": f"{meet_status(next_meet, today=today)} | {short_line}",
+        "meet_days": meet_status(next_meet, today=today),
         "love_line": love_line,
         "weather_source": weather_source(),
     }
     for key, value in fields.items():
-        if key == "love_line":
-            valid = value.endswith(known_suffix) and value[:-len(known_suffix)].isascii()
+        if key == "greeting":
+            # ≈ is allowed only in the fixed Known greeting text.
+            valid = value.replace("≈", "").isascii()
         elif key in {"weather_a", "weather_b"}:
             valid = value.replace("°", "").isascii()
         else:

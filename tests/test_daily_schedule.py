@@ -87,7 +87,7 @@ class DailyScheduleTests(unittest.TestCase):
             patch.object(
                 main,
                 "build_payload_fields",
-                return_value={"meet_days": "in 95 days | Hello", "love_line": "Hello"},
+                return_value={"meet_days": "in 95 days", "love_line": "Hello", "greeting": "Known: ≈1 days"},
             ),
             patch.object(
                 main,
@@ -144,18 +144,15 @@ class DailyScheduleTests(unittest.TestCase):
         self.assertNotIn("WECHAT_OPENID_CN:", job)
         self.assertNotIn("DAILY_MESSAGE_CONFIG:", job)
 
-    def test_recipient_greeting_uses_own_local_time(self) -> None:
-        for hour, greeting in (
-            ("09:00", "Good morning, love!"),
-            ("15:00", "Afternoon, love!"),
-            ("21:00", "Good evening, love!"),
-        ):
+    def test_greeting_is_known_duration_not_daypart(self) -> None:
+        for hour in ("09:00", "15:00", "21:00"):
             with (
                 self.subTest(hour=hour),
                 patch.dict(
                     os.environ,
                     {
                         "PUSH_SLOT": "us",
+                        "KNOWN_START_DATE": "2019-09-02",
                         "LOVE_START_DATE": "2026-07-08",
                         "NEXT_MEET_DATE": "2026-12-20",
                     },
@@ -167,10 +164,14 @@ class DailyScheduleTests(unittest.TestCase):
                 patch.object(main, "generate_love_line", return_value="I ache for you."),
             ):
                 fields = main.build_payload_fields()
-            self.assertEqual(fields["greeting"], greeting)
+            self.assertEqual(fields["greeting"], "Known: ≈2572 days")
+            self.assertEqual(fields["love_line"], "I ache for you.")
             self.assertEqual(fields["time_a"], hour)
             self.assertEqual(fields["time_b"], "09:00")
-            self.assertEqual(wechat.build_template_data(fields)["greeting"]["value"], greeting)
+            self.assertEqual(
+                wechat.build_template_data(fields)["greeting"]["value"],
+                "Known: ≈2572 days",
+            )
 
 
 if __name__ == "__main__":

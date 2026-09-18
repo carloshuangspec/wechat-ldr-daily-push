@@ -53,8 +53,9 @@ SCHEDULED_CN_ENV = {
 }
 
 TEST_FIELDS = {
-    "meet_days": "in 95 days | Hello",
-    "love_line": "Known: ≈1 days\nHello",
+    "meet_days": "in 95 days",
+    "love_line": "Hello",
+    "greeting": "Known: ≈1 days",
 }
 
 
@@ -481,11 +482,14 @@ class DateTests(unittest.TestCase):
             with self.subTest(field=key):
                 if key in {"weather_a", "weather_b"}:
                     self.assertTrue(value.replace("°", "").isascii())
+                elif key == "greeting":
+                    self.assertRegex(value, r"\AKnown: ≈[0-9]+ days\Z|\AKnown ≈[0-9]+d\Z")
+                    self.assertTrue(value.replace("≈", "").isascii())
                 elif key == "love_line":
-                    generated_line, separator, known_line = value.partition("\n")
-                    self.assertTrue(generated_line.isascii())
-                    self.assertRegex(known_line, r"\AKnown: ≈[0-9]+ days\Z")
-                    self.assertEqual(separator, "\n")
+                    self.assertTrue(value.isascii())
+                    self.assertNotIn("\n", value)
+                    self.assertNotIn("Known", value)
+                    self.assertNotRegex(value, r"(?i)note:")
                 else:
                     self.assertTrue(value.isascii())
 
@@ -508,11 +512,16 @@ class DateTests(unittest.TestCase):
         ):
             fields = main.build_payload_fields()
             self.assertEqual(fields["love_days"], "71 days")
-            self.assertEqual(fields["meet_days"], "in 95 days | Thinking of you")
-            self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
+            self.assertEqual(fields["meet_days"], "in 95 days")
+            self.assertEqual(fields["love_line"], "Thinking of you")
+            self.assertEqual(fields["greeting"], "Known: ≈2572 days")
             self.assertEqual(
                 wechat.build_template_data(fields)["love_line"]["value"],
-                "Thinking of you\nKnown: ≈2572 days",
+                "Thinking of you",
+            )
+            self.assertEqual(
+                wechat.build_template_data(fields)["greeting"]["value"],
+                "Known: ≈2572 days",
             )
             self.assert_english_payload(fields)
 
@@ -533,9 +542,10 @@ class DateTests(unittest.TestCase):
             patch.object(main, "generate_love_line", return_value="Thinking of you"),
         ):
             fields = main.build_payload_fields()
-            self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
+            self.assertEqual(fields["love_line"], "Thinking of you")
+            self.assertEqual(fields["greeting"], "Known: ≈2572 days")
             self.assertEqual(fields["love_days"], "71 days")
-            self.assertEqual(fields["meet_days"], "in 95 days | Thinking of you")
+            self.assertEqual(fields["meet_days"], "in 95 days")
 
     def test_invalid_known_start_date_fails_before_weather(self) -> None:
         with (
@@ -578,6 +588,62 @@ class DateTests(unittest.TestCase):
                 with self.assertRaises(main.ConfigError):
                     main.build_payload_fields()
 
+    def test_literal_note_label_cannot_reach_wechat_payload(self) -> None:
+        for generated in (
+            "Note: thinking of you",
+            "Still here Note: always",
+            "NOTE: still here",
+            "note: quiet sky",
+        ):
+            with (
+                self.subTest(generated_kind=generated.split(":", 1)[0]),
+                patch.dict(
+                    os.environ,
+                    {
+                        "PUSH_SLOT": "cn",
+                        "LOVE_START_DATE": "2026-07-08",
+                        "NEXT_MEET_DATE": "2026-12-20",
+                    },
+                    clear=True,
+                ),
+                patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+                patch.object(main, "local_now_str", return_value="08:00"),
+                patch.object(main, "brief_weather", return_value="Clear 20°C"),
+                patch.object(main, "generate_love_line", return_value=generated),
+            ):
+                with self.assertRaises(main.ConfigError) as caught:
+                    main.build_payload_fields()
+                self.assertEqual(str(caught.exception), "Invalid English love line")
+                self.assertNotIn(generated, str(caught.exception))
+                self.assertNotIn("Note:", str(caught.exception))
+
+    def test_manual_exact_with_note_label_fails_before_send(self) -> None:
+        bad_exact = "Note: handwritten leak"
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "cn",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                    "DAILY_MESSAGE_CONFIG": json.dumps(
+                        {"date": "2026-09-16", "exact": bad_exact}
+                    ),
+                },
+                clear=True,
+            ),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "brief_weather") as weather_call,
+            patch.object(main, "generate_love_line") as gen,
+        ):
+            with self.assertRaises(Exception) as caught:
+                main.build_payload_fields()
+            # DailyContentError from parse/choose; fixed safe message, no leak.
+            self.assertNotIn(bad_exact, str(caught.exception))
+            self.assertNotIn("Note:", str(caught.exception))
+            weather_call.assert_not_called()
+            gen.assert_not_called()
+
     def test_weather_cannot_add_approximation_sign(self) -> None:
         with (
             patch.dict(
@@ -619,9 +685,10 @@ class DateTests(unittest.TestCase):
             ):
                 fields = main.build_payload_fields()
                 local_today.assert_called_once_with(expected_tz)
-                self.assertEqual(fields["greeting"], "Good morning, love!")
+                self.assertTrue(fields["greeting"].startswith("Known: ≈"))
+                self.assertEqual(fields["love_line"], "Thinking of you")
                 self.assertEqual(fields["love_days"], love_text)
-                self.assertEqual(fields["meet_days"], f"{meet_text} | Thinking of you")
+                self.assertEqual(fields["meet_days"], meet_text)
                 self.assert_english_payload(fields)
 
     def test_meeting_has_three_states(self) -> None:
