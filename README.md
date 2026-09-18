@@ -54,7 +54,7 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 `SEND_SELF_ONCE` 与 `SEND_CN_ONCE` 是手动测试的意图确认短语，不是真正的一次性令牌；“首次 run”只限制单个 run 的重试，不会阻止创建新的手动 run。双端真发是两次顺序调用微信接口，并非原子事务或两部手机同时送达；第一人成功而第二人失败时，日志应保留第一人的脱敏接受状态，不盲目重试整个任务，以免重复发送。API 接受和绿色 job 本身均不等于手机收到；SELF 手机已确认先前手动测试，CN 手机与首次双端定时运行尚未确认。若发现收件人或内容错误，应立即关闭对应的每日开关并排查，不自动重发。
 
-若手机收到了消息却看不到英文短笺，先手动运行独立的 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，则只表示接口检查未完成，不能据此推断模板字段缺失。模板含有字段也不能保证微信客户端卡片将它显示出来。当前观察到的测试号卡片常只显示双城天气、Together 和 Next meeting，可能仍隐藏 `love_line`，须等 Carlos 更新在线微信测试号模板后才能在手机上确认最终呈现（**在线模板改动不在本分支范围**；本仓库只做代码就绪）。不要盲目重发。可用 `preview-both`（`mode=preview`、`slot=both`）在 dry-run 下核对字段组装。
+若手机收到了消息却看不到独立的英文短笺，先运行 `inspect-template` 工作流（无需输入）。它只读取当前 `WECHAT_TEMPLATE_ID` 对应的在线模板，输出 `template_found` 和 `missing_fields`，不加载任何收件 OpenID、也不发送微信。`missing_fields` 含 `love_line` 表示当前在线模板没有 `{{love_line.DATA}}`；若工作流报 `template_check_failed`，不能据此推断模板字段缺失。即使字段存在，也不能保证手机卡片显示它。为恢复曾在卡片上实际看到的情话位置，`meet_days` 现在附加同一条情话；超长时仅这一处尽量在单词边界缩短并加 `...`，`love_line` 仍保留完整原句。两个字段若都显示，卡片可能重复，须以一次本人手机试发核对；不要盲目重发。可用 `preview-both`（`mode=preview`、`slot=both`）先核对字段组装。
 
 ## 配置：必填与可选
 
@@ -117,7 +117,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。**样稿 C 布局（Carlos 确认）**：无 Hello / Good morning 等问候语；`greeting` 字段本身就是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 仅为见面倒计时（如 `in 94 days` / `today` / `date passed`），不再附加 `| 英文`；`love_line` 仅为无标题英文短笺（不加 `Note:`，也不再附 Known），≤64 可打印 ASCII。手机端是否显示 `greeting` / `love_line` 取决于在线测试号模板，**改在线模板不在本分支范围**——手机可能仍隐藏这些字段，须等 Carlos 更新在线微信测试号模板后才能确认最终呈现。`weather_source` 会标明本次选择的天气服务和官网链接；目前的卡片也可能不显示这一行，仍须核对手机实际呈现：
+测试号模板字段必须与下面一致，固定标签请用英文。无 Hello / Good morning 等问候语；`greeting` 字段本身是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 是见面倒计时加 ` | ` 和同一条情话的可见版本，总长 ≤64；`love_line` 保留无标题英文原句（不加 `Note:` 或 Known），≤64 可打印 ASCII。手机是否显示 `greeting` / `love_line` 取决于在线测试号模板；`weather_source` 在卡片上也可能不显示，须核对手机实际呈现：
 
 ```text
 {{greeting.DATA}}
@@ -136,7 +136,7 @@ Known: ≈2573 days
 A: Ann Arbor 21:00 Sunny 12°C
 B: Shanghai 09:00 Cloudy 22°C
 Together: 72 days
-Next meeting: in 94 days
+Next meeting: in 94 days | Sharing this quiet stretch of sky with you.
 Sharing this quiet stretch of sky with you.
 Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted
 ```
@@ -154,7 +154,7 @@ GitHub Actions schedule 使用 IANA 时区；每天的唯一触发时间配置�
 | 仅女友为 `1` | `scheduled-cn` + `preview-us` | 只给女友真发，本人只预览 |
 | 两个均未开启 | `preview-cn` + `preview-us` | 不发微信，只分别预览 |
 
-以上由唯一 `0 9 * * *` + `Asia/Shanghai` 定时事件决定。上海 09:00 在底特律夏令时是前一天 21:00，冬令时是前一天 20:00；无法让两地全年都固定在 09:00 / 21:00。双端任务只组装一次天气、当地时间、上海日期天数和英文情话（DeepSeek 可按无效文案规则在发送前重新生成），当天的 `DAILY_MESSAGE_CONFIG` 同时作用于两份完全相同的消息；两次发送只是分别指定两个不同 OpenID。单人任务保留各自当地日期、问候和生成方式。GitHub 定时保存在云端，不依赖本机开机，但整点触发可能排队、延迟或丢弃；即便事件按时开始，安装依赖以及两次微信 API 请求也会再耗时。新时刻和两部手机实际收到的情况须以运行记录及手机验收，不能承诺手机每天 09:00 准点、同一秒收到。
+以上由唯一 `0 9 * * *` + `Asia/Shanghai` 定时事件决定。上海 09:00 在底特律夏令时是前一天 21:00，冬令时是前一天 20:00；无法让两地全年都固定在 09:00 / 21:00。双端任务只组装一次天气、当地时间、上海日期天数和英文情话（DeepSeek 可按无效文案规则在发送前重新生成），当天的 `DAILY_MESSAGE_CONFIG` 同时作用于两份完全相同的消息；两次发送只是分别指定两个不同 OpenID。单人任务保留各自当地日期和生成方式，问候字段均为 Known 行。GitHub 定时保存在云端，不依赖本机开机，但整点触发可能排队、延迟或丢弃；即便事件按时开始，安装依赖以及两次微信 API 请求也会再耗时。新时刻和两部手机实际收到的情况须以运行记录及手机验收，不能承诺手机每天 09:00 准点、同一秒收到。
 
 ## 项目结构与测试
 

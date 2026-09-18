@@ -512,7 +512,7 @@ class DateTests(unittest.TestCase):
         ):
             fields = main.build_payload_fields()
             self.assertEqual(fields["love_days"], "71 days")
-            self.assertEqual(fields["meet_days"], "in 95 days")
+            self.assertEqual(fields["meet_days"], "in 95 days | Thinking of you")
             self.assertEqual(fields["love_line"], "Thinking of you")
             self.assertEqual(fields["greeting"], "Known: ≈2572 days")
             self.assertEqual(
@@ -545,7 +545,7 @@ class DateTests(unittest.TestCase):
             self.assertEqual(fields["love_line"], "Thinking of you")
             self.assertEqual(fields["greeting"], "Known: ≈2572 days")
             self.assertEqual(fields["love_days"], "71 days")
-            self.assertEqual(fields["meet_days"], "in 95 days")
+            self.assertEqual(fields["meet_days"], "in 95 days | Thinking of you")
 
     def test_invalid_known_start_date_fails_before_weather(self) -> None:
         with (
@@ -688,7 +688,7 @@ class DateTests(unittest.TestCase):
                 self.assertTrue(fields["greeting"].startswith("Known: ≈"))
                 self.assertEqual(fields["love_line"], "Thinking of you")
                 self.assertEqual(fields["love_days"], love_text)
-                self.assertEqual(fields["meet_days"], meet_text)
+                self.assertEqual(fields["meet_days"], f"{meet_text} | Thinking of you")
                 self.assert_english_payload(fields)
 
     def test_meeting_has_three_states(self) -> None:
