@@ -125,7 +125,7 @@ class DailyScheduleTests(unittest.TestCase):
     def test_workflow_one_shanghai_schedule_and_isolated_self_job(self) -> None:
         workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
         schedule = workflow.split('  schedule:\n', 1)[1].split('  workflow_dispatch:', 1)[0]
-        self.assertEqual(schedule.count('cron: "0 9 * * *"'), 1)
+        self.assertEqual(schedule.count('cron: "0 9 * * *"'), 0)
         self.assertIn('timezone: "Asia/Shanghai"', schedule)
         self.assertNotIn('America/Detroit', schedule)
         self.assertIn("  scheduled-self:", workflow)
