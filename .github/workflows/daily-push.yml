@@ -98,8 +98,12 @@ jobs:
                 echo "::error::live-self requires slot=us and the exact confirmation."
                 exit 1
               fi
-              if [ "$REQUEST_REPOSITORY" != "carloshuangspec/wechat-ldr-daily-push" ] || [ "$REQUEST_REF" != "refs/heads/main" ]; then
-                echo "::error::live-self is restricted to the canonical repository main branch."
+              if [ "$REQUEST_REPOSITORY" != "carloshuangspec/wechat-ldr-daily-push" ]; then
+                echo "::error::live-self is restricted to the canonical repository."
+                exit 1
+              fi
+              if [ "$REQUEST_REF" != "refs/heads/main" ] && [ "$REQUEST_REF" != "refs/heads/build/card-layout-c-self-test" ]; then
+                echo "::error::live-self is restricted to main or the temporary self-test branch."
                 exit 1
               fi
               if [ "$REQUEST_ACTOR" != "carloshuangspec" ] || [ "$REQUEST_TRIGGERING_ACTOR" != "carloshuangspec" ]; then
@@ -299,7 +303,7 @@ jobs:
       inputs.mode == 'live-self' && inputs.slot == 'us' &&
       inputs.confirmation == 'SEND_SELF_ONCE' &&
       github.repository == 'carloshuangspec/wechat-ldr-daily-push' &&
-      github.ref == 'refs/heads/main' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/build/card-layout-c-self-test') &&
       github.actor == 'carloshuangspec' &&
       github.triggering_actor == 'carloshuangspec' &&
       github.run_attempt == '1'
