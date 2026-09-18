@@ -15,8 +15,8 @@ class DailyContentError(ValueError):
         super().__init__("Invalid daily content configuration.")
 
 
-# English letter body alone. love_line = body + "\nKnown: ≈N days" must stay ≤64 (wechat.py).
-ENGLISH_LINE_MAX = 42
+# English letter alone fills love_line (Known moved to greeting). Cap matches wechat love_line ≤64.
+ENGLISH_LINE_MAX = 64
 LOVE_LINE_MAX = 64
 
 _DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")

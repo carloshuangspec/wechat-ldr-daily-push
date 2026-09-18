@@ -54,7 +54,8 @@ SCHEDULED_CN_ENV = {
 
 TEST_FIELDS = {
     "meet_days": "in 95 days",
-    "love_line": "Known: ≈1 days\nHello",
+    "love_line": "Hello",
+    "greeting": "Known: ≈1 days",
 }
 
 
@@ -481,11 +482,13 @@ class DateTests(unittest.TestCase):
             with self.subTest(field=key):
                 if key in {"weather_a", "weather_b"}:
                     self.assertTrue(value.replace("°", "").isascii())
+                elif key == "greeting":
+                    self.assertRegex(value, r"\AKnown: ≈[0-9]+ days\Z|\AKnown ≈[0-9]+d\Z")
+                    self.assertTrue(value.replace("≈", "").isascii())
                 elif key == "love_line":
-                    generated_line, separator, known_line = value.partition("\n")
-                    self.assertTrue(generated_line.isascii())
-                    self.assertRegex(known_line, r"\AKnown: ≈[0-9]+ days\Z")
-                    self.assertEqual(separator, "\n")
+                    self.assertTrue(value.isascii())
+                    self.assertNotIn("\n", value)
+                    self.assertNotIn("Known", value)
                 else:
                     self.assertTrue(value.isascii())
 
@@ -509,10 +512,15 @@ class DateTests(unittest.TestCase):
             fields = main.build_payload_fields()
             self.assertEqual(fields["love_days"], "71 days")
             self.assertEqual(fields["meet_days"], "in 95 days")
-            self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
+            self.assertEqual(fields["love_line"], "Thinking of you")
+            self.assertEqual(fields["greeting"], "Known: ≈2572 days")
             self.assertEqual(
                 wechat.build_template_data(fields)["love_line"]["value"],
-                "Thinking of you\nKnown: ≈2572 days",
+                "Thinking of you",
+            )
+            self.assertEqual(
+                wechat.build_template_data(fields)["greeting"]["value"],
+                "Known: ≈2572 days",
             )
             self.assert_english_payload(fields)
 
@@ -533,7 +541,8 @@ class DateTests(unittest.TestCase):
             patch.object(main, "generate_love_line", return_value="Thinking of you"),
         ):
             fields = main.build_payload_fields()
-            self.assertEqual(fields["love_line"], "Thinking of you\nKnown: ≈2572 days")
+            self.assertEqual(fields["love_line"], "Thinking of you")
+            self.assertEqual(fields["greeting"], "Known: ≈2572 days")
             self.assertEqual(fields["love_days"], "71 days")
             self.assertEqual(fields["meet_days"], "in 95 days")
 
@@ -619,7 +628,8 @@ class DateTests(unittest.TestCase):
             ):
                 fields = main.build_payload_fields()
                 local_today.assert_called_once_with(expected_tz)
-                self.assertEqual(fields["greeting"], "Good morning, love!")
+                self.assertTrue(fields["greeting"].startswith("Known: ≈"))
+                self.assertEqual(fields["love_line"], "Thinking of you")
                 self.assertEqual(fields["love_days"], love_text)
                 self.assertEqual(fields["meet_days"], meet_text)
                 self.assert_english_payload(fields)

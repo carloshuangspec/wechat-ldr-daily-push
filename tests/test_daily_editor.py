@@ -55,7 +55,7 @@ class DailyEditorTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_blank_or_invalid_exact_fails_before_gh(self) -> None:
-        for answer_set in (("2026-09-17", "", ""), ("2026-09-17", "", "A" * 43)):
+        for answer_set in (("2026-09-17", "", ""), ("2026-09-17", "", "A" * 65)):
             with (
                 self.subTest(answer_set=answer_set),
                 self.answers(*answer_set),

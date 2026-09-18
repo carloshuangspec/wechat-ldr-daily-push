@@ -39,7 +39,9 @@ class DailyIntegrationTests(unittest.TestCase):
             wechat.build_template_data(fields)["meet_days"]["value"],
             "in 95 days",
         )
-        self.assertEqual(fields["love_line"].split("\n", 1)[0], "I ache for you.")
+        self.assertEqual(fields["love_line"], "I ache for you.")
+        self.assertTrue(fields["greeting"].startswith("Known: ≈"))
+        self.assertNotIn("|", fields["meet_days"])
 
     def test_meeting_field_rejects_truncation_of_emotional_line(self) -> None:
         with self.assertRaises(ValueError):
@@ -63,7 +65,8 @@ class DailyIntegrationTests(unittest.TestCase):
             fields = main.build_payload_fields()
         generate.assert_not_called()
         today.assert_called_once_with("Asia/Shanghai")
-        self.assertEqual(fields["love_line"], "My favorite day\nKnown: ≈2572 days")
+        self.assertEqual(fields["love_line"], "My favorite day")
+        self.assertEqual(fields["greeting"], "Known: ≈2572 days")
         self.assertEqual(fields["meet_days"], "in 95 days")
         self.assertEqual(
             wechat.build_template_data(fields)["love_line"]["value"], fields["love_line"]
@@ -87,7 +90,8 @@ class DailyIntegrationTests(unittest.TestCase):
             weather_a="Clear 20°C",
             weather_b="Clear 20°C",
         )
-        self.assertTrue(fields["love_line"].startswith("Here with you\nKnown: ≈"))
+        self.assertEqual(fields["love_line"], "Here with you")
+        self.assertTrue(fields["greeting"].startswith("Known: ≈"))
 
     def test_stale_cn_config_uses_default_prompt(self) -> None:
         env = {**BASE_ENV, "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-15","exact":"Yesterday"}'}

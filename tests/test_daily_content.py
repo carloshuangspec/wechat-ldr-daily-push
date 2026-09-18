@@ -100,7 +100,7 @@ class ParseConfigTests(unittest.TestCase):
         for exact in (
             "",
             "   ",
-            "A" * 43,
+            "A" * 65,
             "Hi\nthere",
             "Hi\rthere",
             "Hi\tthere",
@@ -113,7 +113,7 @@ class ParseConfigTests(unittest.TestCase):
                 parse_config(json.dumps({"date": "2026-09-16", "exact": exact}))
 
     def test_accepts_printable_ascii_exact_at_limit(self) -> None:
-        exact = "A" * 42
+        exact = "A" * 64
         self.assertEqual(
             parse_config(json.dumps({"date": "2026-09-16", "exact": exact})),
             {"date": "2026-09-16", "exact": exact},
@@ -121,7 +121,7 @@ class ParseConfigTests(unittest.TestCase):
 
     def test_error_message_never_echoes_raw_config(self) -> None:
         marker = "NON_SECRET_TEST_MARKER"
-        overlong = "NON_SECRET_TEST_MARKER_" + ("X" * 30)  # exceeds ENGLISH_LINE_MAX
+        overlong = "NON_SECRET_TEST_MARKER_" + ("X" * 50)  # exceeds ENGLISH_LINE_MAX
         for raw in (marker, json.dumps({"date": "2026-09-16", "exact": overlong})):
             with self.subTest(raw=raw), self.assertRaises(DailyContentError) as caught:
                 parse_config(raw)

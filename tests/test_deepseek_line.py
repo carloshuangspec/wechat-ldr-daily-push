@@ -203,7 +203,7 @@ class DeepSeekLineTests(unittest.TestCase):
 
     def test_failure_diagnostics_are_fixed_categories_only(self) -> None:
         cases = ((self.response(status=402), "http_402"),
-                 (self.response(content="This letter line is intentionally way too long for the budget"), "invalid_text"),
+                 (self.response(content="This letter line is intentionally way too long for the ASCII budget we enforce"), "invalid_text"),
                  (self.response(finish="length"), "abnormal_finish"))
         for response, category in cases:
             stderr = StringIO()
@@ -221,7 +221,7 @@ class DeepSeekLineTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", side_effect=[
-                self.response(content="This letter is intentionally far too long for our ASCII budget"),
+                self.response(content="This letter is intentionally far too long for our ASCII budget and must be rejected"),
                 self.response(content="Miss you today"),
             ]) as post,
             redirect_stderr(StringIO()) as stderr,

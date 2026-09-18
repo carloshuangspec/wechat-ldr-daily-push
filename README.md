@@ -96,9 +96,9 @@ Carlos 必须本人在仓库 `Settings → Secrets and variables → Actions` �
 
 QWeather Key 与 Host 都配置时优先使用 QWeather；任一缺失时使用无需密钥的 [Open-Meteo 免费非商业 API](https://open-meteo.com/en/terms)。默认城市会加国家限制以避免同名地点选错；其他城市可用英文 `City, Country` 缩小搜索范围。Open-Meteo 的[城市定位数据基于 GeoNames](https://open-meteo.com/en/docs/geocoding-api)，天气代码会转换成简短英文并将温度四舍五入，因此消息中的 `adapted` 标明了改动。其数据按 [CC BY 4.0 许可](https://creativecommons.org/licenses/by/4.0/)使用；模板的天气来源字段显示 Open-Meteo 官网、GeoNames、许可链接和改动说明。API 失败只显示英文状态，不会中断整条消息。QWeather Key 只经 `X-QW-Api-Key` 请求头发往校验过的 Host；所有天气请求均拒绝自动重定向。
 
-每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 42 个可打印 ASCII 字符的英文短笺（样稿 C：无 `Note:` 等标签前缀），同一句发给两位收件人。提示词要求双边可读：可用两端当地时段（morning/afternoon/evening/night）与无城市名天气短语作事实，不得编造私密回忆、普通生活事件（如咖啡/通勤）、地名或对方感受；无手动主题时在「跨时区交班 / 无压力惦念 / 天气时段细节 / 温柔轻幽默 / 偶尔可跳过的小问题」中择一，**Garden 连续故事感仅偶尔使用**，不是每日打卡仪式，也不是固定句库。有手动 `theme` 时优先服从主题并仍受硬性边界约束；有效 `exact` 跳过 AI。正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。若仅文案不合格，会在任何微信发送前最多再生成两次；三次仍不合格或接口/鉴权失败则跳过整条，不替换固定句子，**绝不自动重试微信发送**。失败日志只记录固定类别（如 `invalid_text`），不包含响应正文。ASCII 校验不能百分之百判定语义是否英语，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
+每天默认请求 DeepSeek 的 `deepseek-flash` 生成一条不超过 64 个可打印 ASCII 字符的英文短笺（样稿 C：无 `Note:` 等标签前缀；Known 已移入 `greeting`），同一句发给两位收件人。提示词要求双边可读：可用两端当地时段（morning/afternoon/evening/night）与无城市名天气短语作事实，不得编造私密回忆、普通生活事件（如咖啡/通勤）、地名或对方感受；无手动主题时在「跨时区交班 / 无压力惦念 / 天气时段细节 / 温柔轻幽默 / 偶尔可跳过的小问题」中择一，**Garden 连续故事感仅偶尔使用**，不是每日打卡仪式，也不是固定句库。有手动 `theme` 时优先服从主题并仍受硬性边界约束；有效 `exact` 跳过 AI。正式请求只在 HTTPS 固定端点发送 `Authorization: Bearer`，禁止自动重定向。若仅文案不合格，会在任何微信发送前最多再生成两次；三次仍不合格或接口/鉴权失败则跳过整条，不替换固定句子，**绝不自动重试微信发送**。失败日志只记录固定类别（如 `invalid_text`），不包含响应正文。ASCII 校验不能百分之百判定语义是否英语，故真发前先看预览。真实 Key 只放在 `DEEPSEEK_API_KEY` Actions Secret，不放仓库、本地 `.env`、聊天或日志；Secret 已保存也不代表实际有效。
 
-想调整某个上海日期的内容，可在 Mac 上双击 `scripts/edit-daily-message.command`，填日期（默认上海今天）、可选主题 `theme`、可选手写英文原句 `exact`；至少填一项。`theme` 最多 120 字符，可写中英文，会发给 DeepSeek 引导生成；`exact` 必须为单行 1–42 个可打印 ASCII 字符，优先级高于主题且不请求 AI，原样进入消息。工具本地显示输入供确认后，仅通过标准输入将单个 JSON 对象写入 `DAILY_MESSAGE_CONFIG` Secret，不写入 Git 历史或临时文件。替换时需重新填完整内容，不能从 GitHub Secret 读回；工具可经单独确认删除此 Secret。日期不匹配的旧配置会被忽略，格式无效的配置会让运行安全失败。这个 Secret 加载到 CN 单人或双端共用的预览和发送 job；SELF/US 单人路径不读取。
+想调整某个上海日期的内容，可在 Mac 上双击 `scripts/edit-daily-message.command`，填日期（默认上海今天）、可选主题 `theme`、可选手写英文原句 `exact`；至少填一项。`theme` 最多 120 字符，可写中英文，会发给 DeepSeek 引导生成；`exact` 必须为单行 1–64 个可打印 ASCII 字符，优先级高于主题且不请求 AI，原样进入消息。工具本地显示输入供确认后，仅通过标准输入将单个 JSON 对象写入 `DAILY_MESSAGE_CONFIG` Secret，不写入 Git 历史或临时文件。替换时需重新填完整内容，不能从 GitHub Secret 读回；工具可经单独确认删除此 Secret。日期不匹配的旧配置会被忽略，格式无效的配置会让运行安全失败。这个 Secret 加载到 CN 单人或双端共用的预览和发送 job；SELF/US 单人路径不读取。
 
 GitHub 在工作流**排队时**读取仓库 Secret，故要在下一次 run 排队前完成编辑；排队后再更新或删除，不会更改那一次运行。DeepSeek [官方缓存说明](https://api-docs.deepseek.com/guides/kv_cache/)指出输入/输出前缀可能写入缓存，不要在主题中填写未经双方同意的聊天档案、凭据或第三方隐私。`exact` 不送 DeepSeek，但最终微信消息及当前预览日志都会展示它；Secret 的加密不隐藏已渲染的预览内容，仓库日志读取者可见。
 
@@ -117,7 +117,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。**样稿 C 布局**：`meet_days` 仅为见面倒计时（如 `in 94 days` / `today` / `date passed`），不再附加 `| 英文`；无标题英文短笺单独放在 `love_line` 第一行（不加 `Note:` 或其他标签），第二行仍为 `Known: ≈N days`；整段 `love_line` ≤64 可打印 ASCII（英文主体最多 42，以便与 Known 行合计不超限）。手机端是否显示 `love_line` 取决于在线测试号模板，改模板不在本分支范围。`weather_source` 会标明本次选择的天气服务和官网链接；目前的卡片也可能不显示这一行，仍须核对手机实际呈现：
+测试号模板字段必须与下面一致，固定标签请用英文。**样稿 C 布局（Carlos 确认）**：无 Hello / Good morning 等问候语；`greeting` 字段本身就是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 仅为见面倒计时（如 `in 94 days` / `today` / `date passed`），不再附加 `| 英文`；`love_line` 仅为无标题英文短笺（不加 `Note:`，也不再附 Known），≤64 可打印 ASCII。手机端是否显示 `greeting` / `love_line` 取决于在线测试号模板，**改在线模板不在本分支范围**——手机可能仍隐藏这些字段，须等 Carlos 更新在线微信测试号模板后才能确认最终呈现。`weather_source` 会标明本次选择的天气服务和官网链接；目前的卡片也可能不显示这一行，仍须核对手机实际呈现：
 
 ```text
 {{greeting.DATA}}
@@ -132,17 +132,16 @@ Weather: {{weather_source.DATA}}
 示例（日期、天气和当地时间仅为格式示意；双端真发时这份字段不因收件人而改变）：
 
 ```text
-Hello, love!
+Known: ≈2573 days
 A: Ann Arbor 21:00 Sunny 12°C
 B: Shanghai 09:00 Cloudy 22°C
 Together: 72 days
 Next meeting: in 94 days
 Sharing this quiet stretch of sky with you.
-Known: ≈2573 days
 Weather: Open-Meteo https://open-meteo.com | GeoNames | CC BY 4.0 https://creativecommons.org/licenses/by/4.0/ | adapted
 ```
 
-见面日期有三种英文文案：未来显示 “in N days”，当天显示 “today”，过去显示 “date passed”。单人 CN 槽位按 `CITY_B_TZ` 计算日期，单人 US 槽位按 `CITY_A_TZ` 计算日期；双端共用路径统一按 `CITY_B_TZ`（默认上海）日期计算相爱、相识约数和见面倒计时，并使用双方都合适的英文问候。模板更新后需将**新模板的 ID** 保存为 `WECHAT_TEMPLATE_ID`，否则程序仍引用旧模板。
+见面日期有三种英文文案：未来显示 “in N days”，当天显示 “today”，过去显示 “date passed”。单人 CN 槽位按 `CITY_B_TZ` 计算日期，单人 US 槽位按 `CITY_A_TZ` 计算日期；双端共用路径统一按 `CITY_B_TZ`（默认上海）日期计算相爱、相识约数和见面倒计时；Known 经 `greeting` 字段输出，不再使用时段问候。模板更新后需将**新模板的 ID** 保存为 `WECHAT_TEMPLATE_ID`，否则程序仍引用旧模板。
 
 ## 定时任务
 

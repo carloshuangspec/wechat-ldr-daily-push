@@ -188,7 +188,6 @@ def build_payload_fields() -> dict[str, str]:
     # Compute local clocks before generation so DeepSeek can use dayparts.
     time_a = local_now_str(tz_a)
     time_b = local_now_str(tz_b)
-    known_suffix = f"\nKnown: ≈{known_days} days"
     if exact is not None:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
@@ -207,22 +206,19 @@ def build_payload_fields() -> dict[str, str]:
         or not short_line.isprintable()
     ):
         raise ConfigError("Invalid English love line")
-    # 样稿 C: untitled English letter is love_line line 1 (no Note: label);
-    # Known stays line 2. meet_days is countdown only - do not append the letter.
-    love_line = short_line + known_suffix
+    # 样稿 C (confirmed): Known duration lives in greeting; love_line is untitled
+    # English letter only (no Note:/Known). meet_days remains countdown-only.
+    love_line = short_line
     if len(love_line) > LOVE_LINE_MAX:
         raise ConfigError("Love line exceeds template limit")
 
+    greeting = f"Known: ≈{known_days} days"
+    if len(greeting) > 20:
+        greeting = f"Known ≈{known_days}d"
+    if len(greeting) > 20:
+        raise ConfigError("Known greeting exceeds template limit")
+
     ld = love_days(love_start, today=today)
-    recipient_hour = int((time_b if slot == "cn" else time_a).split(":", 1)[0])
-    if os.getenv("LIVE_RECIPIENT") == "both":
-        greeting = "Hello, love!"
-    elif 5 <= recipient_hour < 12:
-        greeting = "Good morning, love!"
-    elif 12 <= recipient_hour < 18:
-        greeting = "Afternoon, love!"
-    else:
-        greeting = "Good evening, love!"
     fields = {
         "greeting": greeting,
         "city_a": city_a,
@@ -237,8 +233,9 @@ def build_payload_fields() -> dict[str, str]:
         "weather_source": weather_source(),
     }
     for key, value in fields.items():
-        if key == "love_line":
-            valid = value.endswith(known_suffix) and value[:-len(known_suffix)].isascii()
+        if key == "greeting":
+            # ≈ is allowed only in the fixed Known greeting text.
+            valid = value.replace("≈", "").isascii()
         elif key in {"weather_a", "weather_b"}:
             valid = value.replace("°", "").isascii()
         else:
