@@ -7,7 +7,13 @@ import os
 import sys
 from datetime import date
 
-from daily_content import ENGLISH_LINE_MAX, LOVE_LINE_MAX, choose_line, parse_config
+from daily_content import (
+    ENGLISH_LINE_MAX,
+    LOVE_LINE_MAX,
+    choose_line,
+    contains_forbidden_note_label,
+    parse_config,
+)
 from dates import local_now_str, local_today, love_days, meet_status
 from deepseek_line import generate_love_line
 from weather import brief_weather, weather_source
@@ -204,6 +210,7 @@ def build_payload_fields() -> dict[str, str]:
         or not 1 <= len(short_line) <= ENGLISH_LINE_MAX
         or not short_line.isascii()
         or not short_line.isprintable()
+        or contains_forbidden_note_label(short_line)
     ):
         raise ConfigError("Invalid English love line")
     # 样稿 C (confirmed): Known duration lives in greeting; love_line is untitled

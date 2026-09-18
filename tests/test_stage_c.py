@@ -489,6 +489,7 @@ class DateTests(unittest.TestCase):
                     self.assertTrue(value.isascii())
                     self.assertNotIn("\n", value)
                     self.assertNotIn("Known", value)
+                    self.assertNotRegex(value, r"(?i)note:")
                 else:
                     self.assertTrue(value.isascii())
 
@@ -586,6 +587,62 @@ class DateTests(unittest.TestCase):
             ):
                 with self.assertRaises(main.ConfigError):
                     main.build_payload_fields()
+
+    def test_literal_note_label_cannot_reach_wechat_payload(self) -> None:
+        for generated in (
+            "Note: thinking of you",
+            "Still here Note: always",
+            "NOTE: still here",
+            "note: quiet sky",
+        ):
+            with (
+                self.subTest(generated_kind=generated.split(":", 1)[0]),
+                patch.dict(
+                    os.environ,
+                    {
+                        "PUSH_SLOT": "cn",
+                        "LOVE_START_DATE": "2026-07-08",
+                        "NEXT_MEET_DATE": "2026-12-20",
+                    },
+                    clear=True,
+                ),
+                patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+                patch.object(main, "local_now_str", return_value="08:00"),
+                patch.object(main, "brief_weather", return_value="Clear 20°C"),
+                patch.object(main, "generate_love_line", return_value=generated),
+            ):
+                with self.assertRaises(main.ConfigError) as caught:
+                    main.build_payload_fields()
+                self.assertEqual(str(caught.exception), "Invalid English love line")
+                self.assertNotIn(generated, str(caught.exception))
+                self.assertNotIn("Note:", str(caught.exception))
+
+    def test_manual_exact_with_note_label_fails_before_send(self) -> None:
+        bad_exact = "Note: handwritten leak"
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "PUSH_SLOT": "cn",
+                    "LOVE_START_DATE": "2026-07-08",
+                    "NEXT_MEET_DATE": "2026-12-20",
+                    "DAILY_MESSAGE_CONFIG": json.dumps(
+                        {"date": "2026-09-16", "exact": bad_exact}
+                    ),
+                },
+                clear=True,
+            ),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "brief_weather") as weather_call,
+            patch.object(main, "generate_love_line") as gen,
+        ):
+            with self.assertRaises(Exception) as caught:
+                main.build_payload_fields()
+            # DailyContentError from parse/choose; fixed safe message, no leak.
+            self.assertNotIn(bad_exact, str(caught.exception))
+            self.assertNotIn("Note:", str(caught.exception))
+            weather_call.assert_not_called()
+            gen.assert_not_called()
 
     def test_weather_cannot_add_approximation_sign(self) -> None:
         with (

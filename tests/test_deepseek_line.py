@@ -12,7 +12,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from daily_content import ENGLISH_LINE_MAX  # noqa: E402
+from daily_content import ENGLISH_LINE_MAX, contains_forbidden_note_label  # noqa: E402
 from deepseek_line import (  # noqa: E402
     DeepSeekLineError,
     build_love_line_prompt,
@@ -251,6 +251,64 @@ class DeepSeekLineTests(unittest.TestCase):
                 generate_love_line()
         post.assert_called_once()
 
+
+
+    def test_literal_note_label_is_forbidden_case_insensitive(self) -> None:
+        for line in (
+            "Note: thinking of you",
+            "Still here Note: always",
+            "Miss you Note:",
+            "NOTE: still here",
+            "note: quiet sky",
+            "nOtE: mixed case",
+        ):
+            with self.subTest(line_kind=line.split(":", 1)[0]):
+                self.assertTrue(contains_forbidden_note_label(line))
+                stderr = StringIO()
+                with (
+                    patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+                    patch.object(requests, "post", return_value=self.response(content=line)) as post,
+                    redirect_stderr(stderr),
+                ):
+                    with self.assertRaises(DeepSeekLineError) as caught:
+                        generate_love_line(theme="ordinary days")
+                self.assertEqual(str(caught.exception), "DeepSeek line unavailable")
+                self.assertEqual(stderr.getvalue(), "line_failure=forbidden_label\n")
+                self.assertEqual(post.call_count, 3)
+                leaked = stderr.getvalue() + str(caught.exception)
+                self.assertNotIn("Note:", leaked)
+                self.assertNotIn("NOTE:", leaked)
+                self.assertNotIn("ordinary days", leaked)
+                self.assertNotIn("TEST_KEY", leaked)
+                self.assertNotIn(line, leaked)
+
+    def test_clean_line_without_note_label_is_accepted(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(
+                requests, "post", return_value=self.response(content="Sharing this quiet sky")
+            ),
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(generate_love_line(), "Sharing this quiet sky")
+
+    def test_forbidden_label_is_regenerated_before_any_send(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(
+                requests,
+                "post",
+                side_effect=[
+                    self.response(content="Note: retry me"),
+                    self.response(content="Miss you today"),
+                ],
+            ) as post,
+            redirect_stderr(StringIO()) as stderr,
+        ):
+            self.assertEqual(generate_love_line(), "Miss you today")
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
+        self.assertNotIn("Note:", stderr.getvalue())
 
     def test_english_line_at_new_max_is_accepted(self) -> None:
         line = "A" * ENGLISH_LINE_MAX

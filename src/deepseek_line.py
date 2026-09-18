@@ -7,7 +7,12 @@ import sys
 
 import requests
 
-from daily_content import ENGLISH_LINE_MAX, DailyContentError, validate_inputs
+from daily_content import (
+    ENGLISH_LINE_MAX,
+    DailyContentError,
+    contains_forbidden_note_label,
+    validate_inputs,
+)
 from weather import UNAVAILABLE_CONFIG, UNAVAILABLE_REQUEST
 
 
@@ -164,6 +169,8 @@ def _request_line(
         or line[-1] in "\"'"
     ):
         return None, "invalid_text"
+    if contains_forbidden_note_label(line):
+        return None, "forbidden_label"
     return line, None
 
 
@@ -204,6 +211,6 @@ def generate_love_line(
         if line is not None:
             print("line_source=deepseek", file=sys.stderr)
             return line
-        if failure != "invalid_text" or attempt == 2:
+        if failure not in {"invalid_text", "forbidden_label"} or attempt == 2:
             _unavailable(failure or "invalid_response")
     raise DeepSeekLineError()  # Unreachable; all three attempts ended above.

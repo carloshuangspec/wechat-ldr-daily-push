@@ -12,6 +12,7 @@ sys.path.insert(0, str(SRC))
 from daily_content import (  # noqa: E402
     DailyContentError,
     choose_line,
+    contains_forbidden_note_label,
     parse_config,
     validate_inputs,
 )
@@ -118,6 +119,33 @@ class ParseConfigTests(unittest.TestCase):
             parse_config(json.dumps({"date": "2026-09-16", "exact": exact})),
             {"date": "2026-09-16", "exact": exact},
         )
+
+    def test_rejects_exact_with_literal_note_label(self) -> None:
+        for exact in (
+            "Note: thinking of you",
+            "Still here Note: always",
+            "Miss you Note:",
+            "NOTE: still here",
+            "note: quiet sky",
+            "nOtE: mixed case",
+        ):
+            with self.subTest(exact_kind=exact.split(":", 1)[0]):
+                self.assertTrue(contains_forbidden_note_label(exact))
+                with self.assertRaises(DailyContentError) as caught:
+                    parse_config(json.dumps({"date": "2026-09-16", "exact": exact}))
+                self.assertEqual(str(caught.exception), "Invalid daily content configuration.")
+                self.assertNotIn(exact, str(caught.exception))
+                self.assertNotIn("Note:", str(caught.exception))
+                self.assertIsNone(caught.exception.__context__)
+
+    def test_accepts_exact_without_note_label(self) -> None:
+        exact = "Sharing this quiet sky with you"
+        self.assertFalse(contains_forbidden_note_label(exact))
+        self.assertEqual(
+            parse_config(json.dumps({"date": "2026-09-16", "exact": exact})),
+            {"date": "2026-09-16", "exact": exact},
+        )
+
 
     def test_error_message_never_echoes_raw_config(self) -> None:
         marker = "NON_SECRET_TEST_MARKER"
