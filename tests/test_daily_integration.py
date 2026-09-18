@@ -80,7 +80,9 @@ class DailyIntegrationTests(unittest.TestCase):
             redirect_stderr(StringIO()),
         ):
             fields = main.build_payload_fields()
-        generate.assert_called_once_with(theme="ordinary days")
+        generate.assert_called_once_with(
+            theme="ordinary days", dayparts=("morning", "morning"), weather=("clear", "clear")
+        )
         self.assertTrue(fields["love_line"].startswith("Here with you\nKnown: ≈"))
 
     def test_stale_cn_config_uses_default_prompt(self) -> None:
@@ -94,7 +96,9 @@ class DailyIntegrationTests(unittest.TestCase):
             redirect_stderr(StringIO()),
         ):
             main.build_payload_fields()
-        generate.assert_called_once_with(theme=None)
+        generate.assert_called_once_with(
+            theme=None, dayparts=("morning", "morning"), weather=("clear", "clear")
+        )
 
     def test_us_ignores_even_malformed_cn_config(self) -> None:
         env = {**BASE_ENV, "PUSH_SLOT": "us", "DAILY_MESSAGE_CONFIG": "{invalid"}
@@ -108,7 +112,9 @@ class DailyIntegrationTests(unittest.TestCase):
         ):
             main.build_payload_fields()
         today.assert_called_once_with("America/Detroit")
-        generate.assert_called_once_with(theme=None)
+        generate.assert_called_once_with(
+            theme=None, dayparts=("morning", "morning"), weather=("clear", "clear")
+        )
 
     def test_bad_cn_config_fails_before_weather_or_provider(self) -> None:
         with (
