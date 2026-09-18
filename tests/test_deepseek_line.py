@@ -70,14 +70,121 @@ class DeepSeekLineTests(unittest.TestCase):
         ):
             self.assertEqual(generate_love_line(), "I choose you, always")
         prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
-        self.assertIn("emotionally intimate", prompt)
-        self.assertIn("long-distance partner", prompt)
-        self.assertIn("directly to you", prompt)
+        self.assertIn("one original emotionally warm English line", prompt)
+        self.assertIn("both recipients receive", prompt)
+        self.assertIn("cross-time-zone handoff", prompt)
+        self.assertIn("low-pressure thought", prompt)
+        self.assertIn("real weather detail", prompt)
+        self.assertIn("gentle distance humor", prompt)
+        self.assertIn("occasional optional question", prompt)
+        self.assertIn("no reply", prompt)
+        self.assertIn("natural", prompt)
         self.assertIn("at most 20 printable ASCII characters", prompt)
-        self.assertIn("Do not invent shared memories", prompt)
-        self.assertIn("the other person's thoughts", prompt)
-        self.assertNotIn("ordinary moments", prompt)
-        self.assertNotIn("at most 16", prompt)
+        self.assertIn("no quotes, emoji, or line breaks", prompt)
+        self.assertIn("Do not invent memories, events, places, or feelings", prompt)
+
+    def test_default_prompt_uses_only_anonymous_normalized_context(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response()) as post,
+            redirect_stderr(StringIO()),
+        ):
+            self.assertEqual(
+                generate_love_line(dayparts=("morning", "evening"), weather=("cloudy", "clear")),
+                "You are my home",
+            )
+        prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn("both recipients receive", prompt)
+        self.assertIn("morning", prompt)
+        self.assertIn("evening", prompt)
+        self.assertIn("cloudy", prompt)
+        self.assertIn("clear", prompt)
+        self.assertIn("optional", prompt)
+        self.assertNotIn("city", prompt.lower())
+        self.assertNotIn("temperature", prompt.lower())
+        self.assertNotIn("provider", prompt.lower())
+        self.assertNotIn("TEST_KEY", prompt)
+
+    def test_absent_weather_does_not_supply_a_weather_fact(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response()) as post,
+            redirect_stderr(StringIO()),
+        ):
+            generate_love_line(dayparts=("night", "afternoon"), weather=(None, None))
+        prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertNotIn("weather cues:", prompt)
+        self.assertIn("night", prompt)
+        self.assertIn("afternoon", prompt)
+
+    def test_partial_weather_supplies_only_the_known_cue(self) -> None:
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response()) as post,
+            redirect_stderr(StringIO()),
+        ):
+            generate_love_line(weather=(None, "rainy"))
+        prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn("second recipient: rainy", prompt)
+        self.assertNotIn("first recipient:", prompt)
+        self.assertNotIn("morning", prompt)
+
+    def test_manual_theme_replaces_default_angles_and_omits_context(self) -> None:
+        stderr = StringIO()
+        with (
+            patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+            patch.object(requests, "post", return_value=self.response()) as post,
+            redirect_stderr(stderr),
+        ):
+            generate_love_line(
+                theme="ordinary days",
+                dayparts=("morning", "evening"),
+                weather=("cloudy", "clear"),
+            )
+        prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn("ordinary days", prompt)
+        self.assertIn("both recipients receive", prompt)
+        self.assertIn("Do not invent memories, events, places, or feelings", prompt)
+        self.assertIn("at most 20 printable ASCII characters", prompt)
+        for default_only in (
+            "cross-time-zone handoff", "low-pressure thought", "real weather detail",
+            "gentle distance humor", "occasional optional question",
+            "morning", "evening", "cloudy", "clear",
+        ):
+            with self.subTest(default_only=default_only):
+                self.assertNotIn(default_only, prompt)
+        self.assertEqual(stderr.getvalue(), "line_source=deepseek\n")
+
+    def test_malformed_context_is_rejected_before_request_with_fixed_diagnostic(self) -> None:
+        invalid_contexts = (
+            {"dayparts": "morning"},
+            {"dayparts": ["morning", "evening"]},
+            {"dayparts": ("morning",)},
+            {"dayparts": ("morning", "evening", "night")},
+            {"dayparts": ("morning", ["evening"])},
+            {"dayparts": ("morning", "05:00 private place")},
+            {"dayparts": (None, "evening")},
+            {"weather": ["clear", "cloudy"]},
+            {"weather": ("clear",)},
+            {"weather": ("clear", "cloudy", None)},
+            {"weather": ("clear", {"private": "value"})},
+            {"weather": ("Cloudy 25°C private place", "clear")},
+            {"weather": ("snow", None)},
+            {"weather": (42, "clear")},
+        )
+        for context in invalid_contexts:
+            with self.subTest(context=context):
+                stderr = StringIO()
+                with (
+                    patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
+                    patch.object(requests, "post") as post,
+                    redirect_stderr(stderr),
+                ):
+                    with self.assertRaises(DeepSeekLineError) as caught:
+                        generate_love_line(**context)
+                post.assert_not_called()
+                self.assertEqual(str(caught.exception), "DeepSeek line unavailable")
+                self.assertEqual(stderr.getvalue(), "line_failure=invalid_context\n")
 
     def test_bad_theme_fails_before_request(self) -> None:
         for theme in ("  ", "a\nb", "x" * 121):
