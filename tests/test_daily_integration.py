@@ -75,6 +75,25 @@ class DailyIntegrationTests(unittest.TestCase):
         self.assertTrue(fields["meet_days"].endswith("..."))
         self.assertLessEqual(len(fields["meet_days"]), 64)
 
+    def test_visible_mirror_skips_manual_padding_without_changing_exact(self) -> None:
+        exact = " " * 50 + "I choose you"
+        env = {
+            **BASE_ENV,
+            "DAILY_MESSAGE_CONFIG": json.dumps({"date": "2026-09-16", "exact": exact}),
+        }
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 9, 16)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line") as generate,
+            redirect_stderr(StringIO()),
+        ):
+            fields = main.build_payload_fields()
+        generate.assert_not_called()
+        self.assertEqual(fields["love_line"], exact)
+        self.assertEqual(fields["meet_days"], "in 95 days | I choose you")
+
     def test_meeting_field_rejects_truncation_of_emotional_line(self) -> None:
         with self.assertRaises(ValueError):
             wechat.build_template_data({"meet_days": "in 95 days" + "X" * 65})

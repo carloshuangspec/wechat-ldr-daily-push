@@ -222,7 +222,11 @@ def build_payload_fields() -> dict[str, str]:
     available = LOVE_LINE_MAX - len(countdown) - len(" | ")
     if available < 4:
         raise ConfigError("Meeting field has no room for the love line")
-    visible_line = short_line
+    # Manual exact keeps its original value in love_line; discard incidental
+    # edge spaces only for the shorter card mirror so it cannot become "...".
+    visible_line = short_line.strip()
+    if not visible_line:
+        raise ConfigError("Love line has no visible text")
     if len(visible_line) > available:
         excerpt = visible_line[: available - 3].rstrip()
         last_space = excerpt.rfind(" ")
