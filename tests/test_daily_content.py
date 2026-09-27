@@ -113,6 +113,20 @@ class ParseConfigTests(unittest.TestCase):
             with self.subTest(exact=repr(exact)), self.assertRaises(DailyContentError):
                 parse_config(json.dumps({"date": "2026-09-16", "exact": exact}))
 
+    def test_exact_is_not_given_generated_line_normalizations(self) -> None:
+        # Curly quotes, em/en dashes, wrapping curly quotes and doubled tabs stay
+        # rejected for handwritten exact; generation-only cleanups never apply here.
+        for exact in ("You\u2019re here.", "Far\u2014near.", "Far\u2013near.",
+                      "\u201cHi you.\u201d", "Hi\t\tyou."):
+            with self.subTest(exact=ascii(exact)), self.assertRaises(DailyContentError):
+                parse_config(json.dumps({"date": "2026-09-16", "exact": exact}))
+        # Straight-quote wrapping and extra ASCII spaces are kept verbatim as before.
+        for exact in ('"Hi you."', "  Hi  you.  "):
+            with self.subTest(exact=exact):
+                self.assertEqual(
+                    parse_config(json.dumps({"date": "2026-09-16", "exact": exact}))["exact"], exact
+                )
+
     def test_accepts_printable_ascii_exact_at_limit(self) -> None:
         exact = "A" * 48
         self.assertEqual(
