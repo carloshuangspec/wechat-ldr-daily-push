@@ -16,6 +16,7 @@ from daily_content import (
 )
 from dates import local_now_str, local_today, love_days, meet_status
 from deepseek_line import generate_love_line
+from send_hold import hold_applies, preview_hold, wait_for_send_time
 from weather import brief_weather, weather_source
 from wechat import build_template_data, send_template
 
@@ -263,6 +264,18 @@ def build_payload_fields() -> dict[str, str]:
     return fields
 
 
+def apply_send_hold(mode: str) -> None:
+    """仅 LIVE Both daily-both 等待；预览 both 只记录；其他模式不做任何事。"""
+    try:
+        if hold_applies(mode):
+            wait_for_send_time(os.getenv("DAILY_CLAIM_DATE"))
+        elif mode == "dry-run" and os.getenv("LIVE_RECIPIENT") == "both":
+            preview_hold()
+    except Exception:
+        # 等待逻辑异常时绝不阻塞：立即发送（门禁已全部通过）。
+        print("send_hold=skipped reason=error", file=sys.stderr, flush=True)
+
+
 def main() -> int:
     try:
         mode = resolve_send_mode()
@@ -298,6 +311,9 @@ def main() -> int:
     except ConfigError as exc:
         print(f"配置错误: {exc}", file=sys.stderr)
         return 2
+
+    # 所有校验与内容生成完成后、紧挨微信发送之前：daily-both 对齐 09:00:00 Shanghai。
+    apply_send_hold(mode)
 
     if mode == "dry-run":
         payload_preview = {

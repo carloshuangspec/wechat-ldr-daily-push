@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-28
+
+- daily-both 精确 09:00:00（Asia/Shanghai）发送：全部门禁、claim、日期校验、天气与 DeepSeek 生成完成后，紧挨微信发送前，若早于 `delivery_date` 09:00:00 且差值 ≤ 15 分钟则等待至 09:00:00，再连续发 CN 与 SELF；已到/已过 09:00 立即发送；早于 15 分钟以上不等待、立即发送（`send_hold=skipped reason=too_early`）。
+- 等待以 ≤30 秒分段 sleep 并每段重读墙钟，单调时钟兜底总时长 ≤ cap+5 秒；固定日志 `send_hold=waited seconds=N` / `send_hold=none` / `send_hold=skipped reason=...`，不含正文或凭据。
+- 仅 `workflow_dispatch` + `LIVE_DISPATCH_MODE=daily-both` + `LIVE_RECIPIENT=both` 生效；live-self、live-cn、schedule 从不等待；preview both 只记录 `send_hold=would_wait seconds=N`。
+- LIVE Both job `timeout-minutes` 10 → 25 以容纳等待。
+
 ## 2026-09-27
 
 - DeepSeek 英文情话：修复 `invalid_text` 反复失败。提示词目标长度收紧到约 40 字符（硬上限仍 48）、只用 ASCII 直撇号、单行、无引号/Markdown/标签。
