@@ -147,8 +147,8 @@ class WaitForSendTimeTests(unittest.TestCase):
                 self.assertEqual(run_hold(clock), ("none", ["send_hold=none"]))
                 self.assertEqual(clock.sleeps, [])
 
-    def test_more_than_fifteen_minutes_early_skips_and_sends_now(self) -> None:
-        for start in (at(8, 44, 59), at(7, 0, 0), at(0, 0, 1)):
+    def test_more_than_thirty_minutes_early_skips_and_sends_now(self) -> None:
+        for start in (at(8, 29, 59), at(7, 0, 0), at(0, 0, 1)):
             with self.subTest(start=start):
                 clock = FakeClock(start)
                 self.assertEqual(
@@ -156,11 +156,17 @@ class WaitForSendTimeTests(unittest.TestCase):
                 )
                 self.assertEqual(clock.sleeps, [])
 
-    def test_exactly_fifteen_minutes_early_waits(self) -> None:
-        clock = FakeClock(at(8, 45, 0))
+    def test_exactly_thirty_minutes_early_waits(self) -> None:
+        clock = FakeClock(at(8, 30, 0))
         status, logs = run_hold(clock)
         self.assertEqual(status, "waited")
-        self.assertEqual(logs, ["send_hold=waited seconds=900"])
+        self.assertEqual(logs, ["send_hold=waited seconds=1800"])
+
+    def test_twenty_minutes_early_waits(self) -> None:
+        clock = FakeClock(at(8, 40, 0))
+        status, logs = run_hold(clock)
+        self.assertEqual(status, "waited")
+        self.assertEqual(logs, ["send_hold=waited seconds=1200"])
 
     def test_other_timezone_input_is_converted_to_shanghai(self) -> None:
         detroit = at(8, 58, 0).astimezone(send_hold.ZoneInfo("America/Detroit"))
@@ -271,7 +277,7 @@ class MainIntegrationTests(unittest.TestCase):
         self.assertIn("send_hold=none", err)
 
     def test_daily_both_too_early_sends_immediately(self) -> None:
-        clock = FakeClock(at(8, 30, 0))
+        clock = FakeClock(at(8, 15, 0))
         rc, events, _, err, send = self._run_main(PAIRED_DISPATCH_ENV, clock)
         self.assertEqual(rc, 0)
         self.assertEqual(clock.sleeps, [])
@@ -338,8 +344,8 @@ class WorkflowTimeoutTests(unittest.TestCase):
     def test_daily_both_job_timeout_covers_cap(self) -> None:
         workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
         both_job = workflow.split("  daily-both:\n", 1)[1]
-        self.assertIn("timeout-minutes: 25", both_job)
-        self.assertGreaterEqual(25 * 60, send_hold.MAX_HOLD_SECONDS + 5 * 60)
+        self.assertIn("timeout-minutes: 40", both_job)
+        self.assertGreaterEqual(40 * 60, send_hold.MAX_HOLD_SECONDS + 5 * 60)
 
 
 if __name__ == "__main__":

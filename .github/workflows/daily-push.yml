@@ -557,8 +557,8 @@ jobs:
         inputs.slot == 'both' && inputs.confirmation == '' &&
         github.actor == 'carloshuangspec' && github.triggering_actor == 'carloshuangspec'))
     runs-on: ubuntu-latest
-    # 含最多 15 分钟的 09:00:00 Shanghai send hold。
-    timeout-minutes: 25
+    # 含最多 30 分钟的 09:00:00 Shanghai send hold。
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:

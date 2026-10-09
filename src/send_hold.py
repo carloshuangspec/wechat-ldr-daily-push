@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 SEND_AT = time(9, 0, 0)
 # 超过该等待时长说明派发异常偏早：不长时间占用 runner，立即发送。
-MAX_HOLD_SECONDS = 15 * 60
+MAX_HOLD_SECONDS = 30 * 60
 # 单次 sleep 上限：每段后重新读取墙钟，避免长 sleep 受时钟漂移影响。
 MAX_SLEEP_CHUNK = 30.0
 # 单调时钟兜底：总等待绝不超过 cap + 该余量。
