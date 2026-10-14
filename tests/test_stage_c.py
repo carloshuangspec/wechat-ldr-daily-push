@@ -1267,12 +1267,13 @@ class WorkflowPolicyTests(unittest.TestCase):
             / "daily-push.yml"
         ).read_text(encoding="utf-8")
 
-    def test_grok_dispatch_is_the_only_automatic_entry(self) -> None:
-        self.assertNotIn("  schedule:\n", self.workflow.split("  workflow_dispatch:\n", 1)[0])
+    def test_native_shanghai_schedule_is_the_automatic_entry(self) -> None:
+        automatic_entry = self.workflow.split("  workflow_dispatch:\n", 1)[0]
+        self.assertIn("  schedule:\n", automatic_entry)
         self.assertIn("  workflow_dispatch:\n", self.workflow)
-        self.assertNotIn('    - cron: "0 9 * * *"', self.workflow)
+        self.assertEqual(automatic_entry.count('    - cron: "0 9 * * *"'), 1)
+        self.assertIn('      timezone: "Asia/Shanghai"', automatic_entry)
         self.assertNotIn('timezone: "America/Detroit"', self.workflow)
-        # Dormant schedule conditions are retained for a reversible cutover.
         self.assertEqual(self.workflow.count("github.event.schedule == '0 9 * * *'"), 6)
 
     def test_stage_c_manual_gate_is_exact(self) -> None:
@@ -1361,6 +1362,41 @@ class WorkflowPolicyTests(unittest.TestCase):
                     result = subprocess.run(
                         ["bash", "-c", validator],
                         env={**env, name: value},
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+
+            schedule_env = {
+                **env,
+                "REQUEST_EVENT": "schedule",
+                "REQUEST_MODE": "",
+                "REQUEST_SLOT": "",
+                "REQUEST_CONFIRMATION": "",
+                "REQUEST_DELIVERY_DATE": "",
+                "REQUEST_ACTOR": "github-actions[bot]",
+                "REQUEST_TRIGGERING_ACTOR": "github-actions[bot]",
+            }
+            valid_schedule = subprocess.run(
+                ["bash", "-c", validator],
+                env=schedule_env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(valid_schedule.returncode, 0, valid_schedule.stderr)
+            for name, value in (
+                ("REQUEST_REPOSITORY", "someone/fork"),
+                ("REQUEST_REF", "refs/heads/other"),
+                ("REQUEST_ATTEMPT", "2"),
+                ("ENABLE_CN_DAILY", "0"),
+                ("ENABLE_SELF_DAILY", "0"),
+                ("ENABLE_CN_DAILY", ""),
+                ("ENABLE_SELF_DAILY", ""),
+            ):
+                with self.subTest(schedule_name=name, schedule_value=value):
+                    result = subprocess.run(
+                        ["bash", "-c", validator],
+                        env={**schedule_env, name: value},
                         capture_output=True,
                         text=True,
                     )

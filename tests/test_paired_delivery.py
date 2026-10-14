@@ -56,7 +56,10 @@ DISPATCH_ENV.pop("GITHUB_EVENT_SCHEDULE")
 class PairedDeliveryTests(unittest.TestCase):
     def test_workflow_routes_both_switches_to_only_one_paired_job(self) -> None:
         workflow = (ROOT / ".github/workflows/daily-push.yml").read_text(encoding="utf-8")
-        self.assertNotIn("  schedule:\n", workflow.split("  workflow_dispatch:\n", 1)[0])
+        automatic_entry = workflow.split("  workflow_dispatch:\n", 1)[0]
+        self.assertIn("  schedule:\n", automatic_entry)
+        self.assertIn('    - cron: "0 9 * * *"', automatic_entry)
+        self.assertIn('      timezone: "Asia/Shanghai"', automatic_entry)
         self.assertIn("  workflow_dispatch:\n", workflow)
         self.assertIn("  claim-daily:\n", workflow)
         self.assertIn("  daily-both:\n", workflow)

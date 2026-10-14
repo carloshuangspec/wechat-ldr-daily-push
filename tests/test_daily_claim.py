@@ -148,6 +148,34 @@ class DailyClaimTests(unittest.TestCase):
         self.assertEqual([unittest.mock.call("claimed=true\nday=2026-09-17\n")], written)
         self.assertNotIn(TOKEN, output.getvalue())
 
+    def test_cli_empty_delivery_date_uses_shanghai_today(self):
+        output = io.StringIO()
+        env = {
+            "DELIVERY_DATE": "",
+            "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
+            "GITHUB_SHA": SHA,
+            "GH_TOKEN": TOKEN,
+            "GITHUB_OUTPUT": "/tmp/test-claim-output",
+        }
+        with patch.dict(os.environ, env, clear=True), \
+             patch("src.daily_claim._today", return_value=date(2026, 9, 17)) as today, \
+             patch("src.daily_claim.claim", return_value=True) as create_claim, \
+             contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()), \
+             patch("builtins.open", unittest.mock.mock_open()) as opened:
+            self.assertEqual(0, main())
+        today.assert_called_once_with()
+        create_claim.assert_called_once_with(
+            DAY,
+            "carloshuangspec/wechat-ldr-daily-push",
+            SHA,
+            TOKEN,
+        )
+        self.assertEqual(
+            [unittest.mock.call("claimed=true\nday=2026-09-17\n")],
+            opened().write.call_args_list,
+        )
+        self.assertEqual("daily_claim=created day=2026-09-17\n", output.getvalue())
+
     def test_cli_error_hides_token_and_response(self):
         out, err = io.StringIO(), io.StringIO()
         with patch.dict(os.environ, {"DELIVERY_DATE": DAY, "GITHUB_REPOSITORY": "bad/repo",

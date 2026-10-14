@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-14
+
+- 恢复 GitHub Actions 原生每日定时：`0 9 * * *` 配合 `Asia/Shanghai`，由默认分支在上海 09:00 触发双端共用内容发送。
+- 定时入口改为双开关 fail-closed：`ENABLE_CN_DAILY` 与 `ENABLE_SELF_DAILY` 必须同时精确为 `1`，否则整次自动运行在统一门禁处停止，不会退化为单人发送。
+- Muse 调整为 09:15 只读守护检查；外部 09:00 派发器不再是必需入口。
+
 ## 2026-09-28
 
 - daily-both 精确 09:00:00（Asia/Shanghai）发送：全部门禁、claim、日期校验、天气与 DeepSeek 生成完成后，紧挨微信发送前，若早于 `delivery_date` 09:00:00 且差值 ≤ 15 分钟则等待至 09:00:00，再连续发 CN 与 SELF；已到/已过 09:00 立即发送；早于 15 分钟以上不等待、立即发送（`send_hold=skipped reason=too_early`）。
