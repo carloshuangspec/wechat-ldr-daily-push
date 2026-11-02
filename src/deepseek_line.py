@@ -129,7 +129,7 @@ def build_love_line_prompt(
         '(no single-sided "good morning" unless it still fits both).\n'
         "No-pressure lines must not demand a reply.\n"
         f"Questions, if any, must be skippable and still at most {ENGLISH_LINE_MAX} printable ASCII characters.\n"
-        "Prefer plain, warm, slightly specific English over poetic melodrama.\n"
+        "Style trial: write in the quiet, literary spirit of Jorge Luis Borges - time, the moon, mirrors, labyrinths, dreams, endless paths - in your own original words; never quote or copy his lines.\n"
         "Output only the single line itself, ending with . or ! or ?, "
         "with no quotes, markdown, labels, emoji, explanations, or line breaks."
     )
