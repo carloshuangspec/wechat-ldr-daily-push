@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from daily_content import ENGLISH_LINE_MAX, contains_forbidden_note_label  # noqa: E402
 from deepseek_line import (  # noqa: E402
+    GENERATED_LINE_MAX,
     INVALID_TEXT_REASONS,
     MAX_ATTEMPTS,
     TARGET_LINE_LEN,
@@ -36,6 +37,7 @@ class DeepSeekLineTests(unittest.TestCase):
             "choices": [{"finish_reason": finish, "message": {"content": content}}]
         }
         return r
+
 
     def test_missing_key_never_makes_request_or_returns_fallback(self) -> None:
         with patch.dict(os.environ, {}, clear=True), patch.object(requests, "post") as post:
@@ -112,7 +114,7 @@ class DeepSeekLineTests(unittest.TestCase):
 
     def test_card_budget_and_incomplete_lines_fail_before_sending(self) -> None:
         self.assertEqual(ENGLISH_LINE_MAX, 48)
-        for line in ("I miss you...", "I miss you and", "I miss you" + " so" * 18 + "."):
+        for line in ("I miss you...", "I miss you and", "I miss you" + " so" * 70 + "."):
             with (
                 self.subTest(line=line),
                 patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
@@ -148,7 +150,7 @@ class DeepSeekLineTests(unittest.TestCase):
             with (
                 self.subTest(theme=repr(theme)),
                 patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
-                patch.object(requests, "post") as post,
+            patch.object(requests, "post") as post,
             ):
                 with self.assertRaises(DeepSeekLineError):
                     generate_love_line(theme=theme)
@@ -223,7 +225,7 @@ class DeepSeekLineTests(unittest.TestCase):
 
     def test_failure_diagnostics_are_fixed_categories_only(self) -> None:
         cases = ((self.response(status=402), "http_402"),
-                 (self.response(content="This letter line is intentionally way too long for the ASCII budget we enforce"),
+                 (self.response(content="This letter line is intentionally way too long for the ASCII budget we enforce" * 3),
                   "invalid_text reason=too_long"),
                  (self.response(finish="length"), "abnormal_finish"))
         for response, category in cases:
@@ -242,7 +244,7 @@ class DeepSeekLineTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", side_effect=[
-                self.response(content="This letter is intentionally far too long for our ASCII budget and must be rejected"),
+                self.response(content="This letter is intentionally far too long for our ASCII budget and must be rejected" * 3),
                 self.response(content="Miss you today."),
             ]) as post,
             redirect_stderr(StringIO()) as stderr,
@@ -257,7 +259,7 @@ class DeepSeekLineTests(unittest.TestCase):
     def test_five_bad_texts_fail_without_a_fallback(self) -> None:
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
-            patch.object(requests, "post", return_value=self.response(content="A" * (ENGLISH_LINE_MAX + 1))) as post,
+            patch.object(requests, "post", return_value=self.response(content="A" * (GENERATED_LINE_MAX + 1))) as post,
             redirect_stderr(StringIO()) as stderr,
         ):
             with self.assertRaises(DeepSeekLineError):
@@ -346,7 +348,7 @@ class DeepSeekLineTests(unittest.TestCase):
         self.assertNotIn("Note:", stderr.getvalue())
 
     def test_english_line_at_new_max_is_accepted(self) -> None:
-        line = "A" * (ENGLISH_LINE_MAX - 1) + "."
+        line = "A" * (GENERATED_LINE_MAX - 1) + "."
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", return_value=self.response(content=line)),
@@ -404,7 +406,7 @@ class DeepSeekLineTests(unittest.TestCase):
 
     def test_normalization_never_joins_lines_or_truncates(self) -> None:
         self.assertEqual(normalize_generated_line("Hi.\nYou.")[0], "Hi.\nYou.")
-        long_text = "A" * (ENGLISH_LINE_MAX + 5) + "."
+        long_text = "A" * (GENERATED_LINE_MAX + 5) + "."
         self.assertEqual(normalize_generated_line(long_text)[0], long_text)
         self.assertEqual(invalid_text_reason(long_text), "too_long")
 
@@ -439,12 +441,12 @@ class DeepSeekLineTests(unittest.TestCase):
         cases = {
             "": "empty",
             "   ": "empty",
-            "Hi.\nYou.": "multiline",
+            "One.\nTwo.\nThree.\nFour.\nFive.": "multiline",
             "Hi.\rYou.": "multiline",
             "Hi.\u2028You.": "multiline",
             "\u4f60\u5f88\u597d.": "non_ascii",
             "Hi\x07 you.": "non_printable",
-            "A" * (ENGLISH_LINE_MAX + 1): "too_long",
+            "A" * (GENERATED_LINE_MAX + 1): "too_long",
             '""Hi you.""': "quoted",
             "`Hi you.": "quoted",
             "**Miss you.**": "markdown",
@@ -463,9 +465,9 @@ class DeepSeekLineTests(unittest.TestCase):
 
     def test_final_invalid_text_log_has_reason_but_no_text(self) -> None:
         cases = {
-            "Hi there.\nAnd again.": "multiline",
+            "Hi there.\nAnd again.\nAnd more.\nAnd more.\nAnd more.": "multiline",
             "Caf\u00e9 SECRET_BODY you.": "non_ascii",
-            "SECRET_BODY " * 6 + ".": "too_long",
+            "SECRET_BODY " * 20 + ".": "too_long",
             "``SECRET_BODY you.``": "quoted",
             "SECRET_BODY you and": "no_end_punct",
             "SECRET_BODY you...": "ellipsis",
@@ -496,13 +498,14 @@ class DeepSeekLineTests(unittest.TestCase):
 
     # ---- Retry budget ----
 
+
     def test_success_on_fifth_attempt_after_mixed_content_rejections(self) -> None:
         with (
             patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
             patch.object(requests, "post", side_effect=[
-                self.response(content="A" * 60 + "."),
+                self.response(content="A" * 201 + "."),
                 self.response(content="Note: hi."),
-                self.response(content="Line one.\nLine two."),
+                self.response(content="Line one.\nLine two.\nLine three.\nLine four.\nLine five."),
                 self.response(content="Miss you and"),
                 self.response(content="Miss you today."),
             ]) as post,
@@ -530,7 +533,7 @@ class DeepSeekLineTests(unittest.TestCase):
                 self.subTest(category=category),
                 patch.dict(os.environ, {"DEEPSEEK_API_KEY": "TEST_KEY"}, clear=True),
                 patch.object(requests, "post", side_effect=[
-                    self.response(content="A" * 60 + "."), second, self.response(content="Hi you."),
+                    self.response(content="A" * 201 + "."), second, self.response(content="Hi you."),
                 ]) as post,
                 redirect_stderr(StringIO()) as stderr,
             ):
