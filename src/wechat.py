@@ -63,150 +63,131 @@ def _short(value: Any, limit: int = 20) -> str:
     s = str(value if value is not None else "")
     if len(s) <= limit:
         return s
-    if limit < 3:
-        return s[:limit]
-    return s[:limit - 3] + "..."
+    return s[:limit] + "..."
 
 
-def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """
-    组装模板 data。字段名需与测试号模板一致：
-    greeting, city_a, time_a, weather_a, city_b, time_b, weather_b,
-    love_days, meet_days, love_line, weather_source
-    """
-    limits = {
-        "greeting": 20,
-        "city_a": 12,
-        "time_a": 10,
-        "weather_a": 16,
-        "city_b": 12,
-        "time_b": 10,
-        "weather_b": 16,
-        "love_days": 12,
-        "meet_days": 64,
-        "love_line": 64,
-        "weather_source": 120,
-    }
-    out: dict[str, dict[str, str]] = {}
-    for key, limit in limits.items():
-        if key in {"meet_days", "love_line"}:
-            line = str(fields.get(key, ""))
-            if len(line) > limit:
-                raise ValueError("Meeting or love line exceeds template limit")
-            out[key] = {"value": line}
-        else:
-            out[key] = {"value": _short(fields.get(key, ""), limit)}
-    return out
+def _extract_send_error(data: dict[str, Any]) -> str:
+    code = data.get("errcode")
+    msg = data.get("errmsg")
+    if code in (None, 0) and msg in (None, "ok"):
+        return ""
+    return f"微信发送失败：errcode={_short(code)} errmsg={_short(msg)}"
 
 
-def inspect_template_fields(
-    template_id: str | None = None, access_token: str | None = None
-) -> dict[str, Any]:
-    """Inspect only field presence for the configured template; return no IDs/content."""
-    selected_id = (template_id or os.getenv("WECHAT_TEMPLATE_ID") or "").strip()
-    if not selected_id:
-        raise WeChatAPIError("缺少微信模板配置")
-    token = access_token or get_access_token()
-    try:
-        response = requests.get(
-            TEMPLATE_LIST_URL,
-            params={"access_token": token},
-            timeout=10.0,
-            allow_redirects=False,
-        )
-        response.raise_for_status()
-        if response.status_code != 200:
-            raise WeChatAPIError("微信模板列表响应未被接受")
-        body = _safe_json(response)
-    except requests.RequestException:
-        raise WeChatAPIError("微信模板列表请求失败") from None
-
-    templates = body.get("template_list")
-    if not isinstance(templates, list) or not all(isinstance(t, dict) for t in templates):
-        raise WeChatAPIError("微信模板列表响应未被接受")
-    matches = [t for t in templates if t.get("template_id") == selected_id]
-    if not matches:
-        return {
-            "template_found": False,
-            "missing_fields": [],
-            "content_chars": 0,
-            "field_lines": [],
-        }
-    if len(matches) != 1 or not isinstance(matches[0].get("content"), str):
-        raise WeChatAPIError("微信模板列表响应未被接受")
-
-    content = matches[0]["content"]
-    missing = [
-        name for name in build_template_data({})
-        if "{{" + name + ".DATA}}" not in content
-    ]
-    field_lines = [
-        re.findall(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\.DATA\}\}", line)
-        for line in content.splitlines()
-    ]
-    return {
-        "template_found": True,
-        "missing_fields": missing,
-        "content_chars": len(content),
-        "field_lines": field_lines,
-    }
-
-
-def send_template(
+def send_template_message(
+    access_token: str,
     openid: str,
-    template_id: str | None = None,
-    data: dict[str, Any] | None = None,
-    access_token: str | None = None,
+    template_id: str,
+    data: dict[str, Any],
     timeout: float = 10.0,
 ) -> dict[str, Any]:
-    openid = str(openid or "").strip()
-    if not openid:
-        raise ValueError("缺少接收方 OPENID")
-    template_id = (template_id or os.getenv("WECHAT_TEMPLATE_ID") or "").strip()
-    if not template_id:
-        raise ValueError("缺少 WECHAT_TEMPLATE_ID")
-    if data is None:
-        raise ValueError("缺少模板 data")
-    token = access_token or get_access_token()
-    payload = {
-        "touser": openid,
-        "template_id": template_id,
-        "data": build_template_data(data)
-        if not all(isinstance(v, dict) and "value" in v for v in data.values())
-        else data,
-    }
+    """发送一条微信模板消息；仅返回简短的错误摘要，绝不记录消息正文。"""
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise ValueError("缺少微信 access_token")
+    if not isinstance(openid, str) or not openid.strip():
+        raise ValueError("缺少微信 openid")
+    if not isinstance(template_id, str) or not template_id.strip():
+        raise ValueError("缺少微信模板 ID")
     try:
         r = requests.post(
             SEND_URL,
-            params={"access_token": token},
-            json=payload,
+            params={"access_token": access_token.strip()},
+            json={
+                "touser": openid.strip(),
+                "template_id": template_id.strip(),
+                "data": data,
+            },
             timeout=timeout,
             allow_redirects=False,
         )
         r.raise_for_status()
         if r.status_code != 200:
-            raise WeChatAPIError("微信模板响应未被接受")
+            raise WeChatAPIError("微信发送响应未被接受")
         result = _safe_json(r)
     except requests.RequestException:
-        raise WeChatAPIError("微信模板请求失败") from None
-    errcode = result.get("errcode")
-    msgid = result.get("msgid")
-    errmsg = result.get("errmsg")
-    msgid_text = (
-        str(msgid).strip()
-        if not isinstance(msgid, bool) and isinstance(msgid, (int, str))
-        else ""
-    )
-    valid_msgid = (
-        msgid_text.isascii()
-        and msgid_text.isdigit()
-        and int(msgid_text) > 0
-    )
-    if (
-        type(errcode) is not int
-        or errcode != 0
-        or not valid_msgid
-        or (errmsg is not None and errmsg != "ok")
-    ):
-        raise WeChatAPIError("微信模板响应未被接受")
-    return {"errcode": 0, "msgid": msgid_text}
+        raise WeChatAPIError("微信发送请求失败") from None
+    err = _extract_send_error(result)
+    if err:
+        raise WeChatAPIError(err)
+    return result
+
+
+def _split_template_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """将模板的 data 对象拆分为字段名与 value；仅保留字符串值。"""
+    fields: dict[str, Any] = {}
+    for key, value in data.items():
+        if isinstance(value, dict) and isinstance(value.get("value"), str):
+            fields[key] = value["value"]
+    return fields
+
+
+def inspect_template(data: dict[str, Any]) -> dict[str, Any]:
+    """从模板消息的 data 中提取字段信息；不记录消息正文。"""
+    fields = _split_template_fields(data)
+    meta = {}
+    for key in sorted(fields):
+        value = fields[key]
+        meta[key] = {"length": len(value), "line_count": value.count("\n") + 1}
+    return meta
+
+
+# 模板字段长度上限（按微信模板消息的字段限制设置）。
+# love_line 已放宽到 200：生成内容的安全上限，特殊日的短诗全文放这里；
+# meet_days 仍为 64，放不下全文时 main 只放倒计时。
+FIELD_LIMITS = {
+    "date": 32,
+    "known_days": 16,
+    "love_days": 16,
+    "love_line": 200,
+    "meet_days": 64,
+    "weather_a": 64,
+    "weather_b": 64,
+    "weather_source": 32,
+}
+
+
+def build_template_data(
+    date_label: str,
+    known_days: int,
+    love_days: int,
+    love_line: str,
+    meet_days: str,
+    weather_a: str,
+    weather_b: str,
+    weather_source: str,
+) -> dict[str, Any]:
+    """组装模板消息 data；每个字段仅接受非空文本；空值会被忽略。"""
+    raw = {
+        "date": date_label,
+        "known_days": str(known_days),
+        "love_days": str(love_days),
+        "love_line": love_line,
+        "meet_days": meet_days,
+        "weather_a": weather_a,
+        "weather_b": weather_b,
+        "weather_source": weather_source,
+    }
+    fields: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(value, str) or not value:
+            continue
+        limit = FIELD_LIMITS.get(key)
+        if limit is not None and len(value) > limit:
+            raise ValueError(f"模板字段 {key} 超出长度上限")
+        fields[key] = {"value": value}
+    return fields
+
+
+def send_template(payload: dict[str, Any]) -> str:
+    """按模板发送给两位收件人；任一失败即整体失败，不做部分重试。"""
+    template_id = (os.getenv("WECHAT_TEMPLATE_ID") or "").strip()
+    openid_cn = (os.getenv("WECHAT_OPENID_CN") or "").strip()
+    openid_self = (os.getenv("WECHAT_OPENID_SELF") or "").strip()
+    if not template_id:
+        raise ValueError("缺少 WECHAT_TEMPLATE_ID")
+    if not openid_cn or not openid_self:
+        raise ValueError("缺少微信收件人 openid")
+    token = get_access_token()
+    for openid in (openid_cn, openid_self):
+        send_template_message(token, openid, template_id, payload)
+    return "sent"
