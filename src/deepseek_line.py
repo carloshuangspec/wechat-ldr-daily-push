@@ -65,276 +65,288 @@ def daypart_from_hhmm(hhmm: str) -> str | None:
     """Map a local HH:MM clock string to a coarse daypart, or None if invalid."""
     if not isinstance(hhmm, str) or ":" not in hhmm:
         return None
-    hour_text, _, minute_text = hhmm.partition(":")
-    try:
-        hour = int(hour_text)
-        minute = int(minute_text)
-    except ValueError:
+    hour_text = hhmm.split(":", 1)[0]
+    if not hour_text.isdigit():
         return None
-    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+    hour = int(hour_text)
+    if not 0 <= hour <= 23:
         return None
-    total = hour * 60 + minute
-    if total < 5 * 60:
-        return "night"
-    if total < 12 * 60:
+    if 5 <= hour < 12:
         return "morning"
-    if total < 18 * 60:
+    if 12 <= hour < 17:
         return "afternoon"
-    return "evening"
+    if 17 <= hour < 22:
+        return "evening"
+    return "night"
 
 
-def _require_time_and_weather(*values: object) -> None:
-    # A missing clock or weather value means the shared line cannot be
-    # honestly built, so fail closed instead of substituting a guess.
-    for value in values:
-        if value is None or (isinstance(value, str) and not value.strip()):
-            raise DeepSeekLineError
-
-
-def _normalize_generated_line(text: str) -> str:
-    # Never invent a period, word or replacement line. Only map curly
-    # quotes and dashes to ASCII, and trim whitespace and wrappers.
-    if text.startswith("\ufeff"):
-        text = text[1:]
-    text = text.translate(_QUOTE_MAP).translate(_DASH_MAP)
-    text = _INLINE_SPACE_RE.sub(" ", text)
-    lines = text.split("\n")
-    lines = [line.strip() for line in lines]
-    while lines and not lines[0]:
-        lines.pop(0)
-    while lines and not lines[-1]:
-        lines.pop()
-    text = "\n".join(lines)
-    text = text.strip(" ")
-    text = text.strip(_WRAPPERS)
-    if not text:
-        return ""
-    if text[-1] in ".,!?":
-        return text
-    stripped = text.rstrip(" ")
-    while stripped and stripped[-1] in ".,!?":
-        stripped = stripped[:-1]
-    if stripped:
-        return stripped
-    return ""
-
-
-def _validate_daily_inputs(theme, time_a, time_b, weather_a, weather_b):
-    # Theme-free daily lines still need the same structural validation
-    # as a manually supplied exact line, so the card is never truncated.
-    validate_inputs(
-        theme=theme,
-        time_a=time_a,
-        time_b=time_b,
-        weather_a=weather_a,
-        weather_b=weather_b,
-    )
-    _require_time_and_weather(time_a, time_b, weather_a, weather_b)
-
-
-def invalid_text_reason(text: str) -> str | None:
-    """Classify a candidate line without ever logging its text."""
-    if not text:
-        return "empty"
-    if any(ch in _LINE_BREAKS and ch != "\n" for ch in text):
-        return "multiline"
-    if text.count("\n") >= GENERATED_MAX_LINES:
-        return "multiline"
-    if not text.isascii():
-        return "non_ascii"
-    if any(not ch.isprintable() and ch not in _LINE_BREAKS for ch in text):
-        return "non_printable"
-    if len(text) > GENERATED_LINE_MAX:
-        return "too_long"
-    if text[0] in "\"'" or text[-1] in "\"'":
-        return "quoted"
-    if "`" in text or "*" in text or "#" in text:
-        return "markdown"
-    if text[-1] not in ".!?":
-        return "no_end_punct"
-    if "\u2026" in text or "..." in text:
-        return "ellipsis"
-    if contains_forbidden_note_label(text):
-        return "forbidden_label"
-    return None
-
-
-def _request_once(
-    api_key: str, prompt: str
-) -> tuple[str | None, str | None, int | None]:
-    # Returns (normalized_line, diagnostic_reason, http_status).
-    # Content-only reasons are retryable; HTTP failures stop immediately.
-    try:
-        response = requests.post(
-            ENDPOINT,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-                "max_tokens": 120,
-            },
-            timeout=30,
-        )
-    except requests.RequestException:
-        return None, "http_error", None
-    if response.status_code != 200:
-        return None, "http_error", response.status_code
-    try:
-        payload = response.json()
-    except ValueError:
-        return None, "malformed_response", response.status_code
-    if not isinstance(payload, dict):
-        return None, "malformed_response", response.status_code
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return None, "malformed_response", response.status_code
-    first = choices[0]
-    if not isinstance(first, dict):
-        return None, "malformed_response", response.status_code
-    message = first.get("message")
-    if not isinstance(message, dict):
-        return None, "malformed_response", response.status_code
-    content = message.get("content")
-    if not isinstance(content, str):
-        return None, "malformed_response", response.status_code
-    normalized = _normalize_generated_line(content)
-    reason = invalid_text_reason(normalized)
-    if reason is not None:
-        return None, reason, response.status_code
-    return normalized, None, response.status_code
-
-
-def _request_with_retries(api_key: str, prompt: str) -> str:
-    # Retry only when the model returned a well-formed but unusable
-    # line (for example, too long or missing end punctuation).
-    seen_reasons: set[str] = set()
-    for _ in range(MAX_ATTEMPTS):
-        line, reason, _status = _request_once(api_key, prompt)
-        if line is not None:
-            return line
-        if reason in ("http_error", "malformed_response"):
-            raise DeepSeekLineError
-        if reason is None:
-            raise DeepSeekLineError
-        if reason in seen_reasons:
-            raise DeepSeekLineError
-        seen_reasons.add(reason)
-    raise DeepSeekLineError
+def sanitize_weather_fact(raw: str | None) -> str | None:
+    """Keep only a short cityless ASCII weather phrase; drop offline/unavailable."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.replace("\u00b0", "").strip()
+    if not text or text in {UNAVAILABLE_CONFIG, UNAVAILABLE_REQUEST}:
+        return None
+    if not text.isascii() or not text.isprintable() or len(text) > 24:
+        return None
+    return text
 
 
 def build_love_line_prompt(
-    theme=None,
+    theme: str | None = None,
     *,
-    daypart_a,
-    daypart_b,
-    weather_a,
-    weather_b,
-    special_fact=None,
-):
-    if theme is not None and (
-        not isinstance(theme, str)
-        or not theme.strip()
-        or "\n" in theme
-        or len(theme) > 120
-    ):
-        raise DeepSeekLineError
+    daypart_a: str | None = None,
+    daypart_b: str | None = None,
+    weather_a: str | None = None,
+    weather_b: str | None = None,
+    special_fact: str | None = None,
+) -> str:
+    """Build the dual-reader generation prompt; never include secrets or city names."""
     if special_fact is not None and (
         not isinstance(special_fact, str)
         or not special_fact.strip()
-        or any(ch in _LINE_BREAKS for ch in special_fact)
+        or any(char in _LINE_BREAKS for char in special_fact)
     ):
-        raise DeepSeekLineError
-    if daypart_a is not None and daypart_a not in _DAYPARTS:
-        raise DeepSeekLineError
-    if daypart_b is not None and daypart_b not in _DAYPARTS:
-        raise DeepSeekLineError
-    time_a = daypart_a or "this part of the day"
-    time_b = daypart_b or "this part of the day"
-    weather_a_text = weather_a or "unknown"
-    weather_b_text = weather_b or "unknown"
-    if weather_a == UNAVAILABLE_REQUEST or weather_b == UNAVAILABLE_REQUEST:
-        weather_note = "One or both weather feeds failed, so do not mention the weather."
-    elif weather_a is None or weather_b is None:
-        weather_note = "No weather information is available today, so do not mention the weather."
-    else:
-        weather_note = f"Weather today: {weather_a_text} in one city, {weather_b_text} in the other."
+        raise DeepSeekLineError()
     prompt = (
-        "Write one original English love line for a long-distance couple, for both recipients to read together.\n"
+        "Write ONE original, romantic English sentence from me to my girlfriend; "
+        "both receive the same message.\n"
+        "\n"
+        "Hard limits:\n"
+        f"- Max {ENGLISH_LINE_MAX} printable ASCII characters, counting spaces and punctuation; "
+        f"aim for {TARGET_LINE_LEN} characters or fewer (about 6 to 9 words). Short beats clever.\n"
+        "- Plain printable ASCII only: letters, digits, spaces, and . , ! ? ' - only.\n"
+        "- Use the plain ASCII apostrophe ' only; no curly quotes, no em or en dashes, "
+        "no ellipsis, no emojis, no non-ASCII.\n"
+        "- Untitled: do not prefix with Note: or any other label; never write the word Note followed by a colon.\n"
+        "- No quotation marks or backticks around the line, no markdown (no *, _, #, >), "
+        "no lists, no explanations.\n"
         "- Exactly one line: no line breaks.\n"
-        "- One complete sentence only, with exactly one verb of motion or travel.\n"
-        f"- Max {ENGLISH_LINE_MAX} printable ASCII characters in total, counting spaces and punctuation.\n"
-        "- Do not write a long sentence or a multi-line poem: aim for 40 characters or fewer.\n"
-        "- No ellipsis characters, including \"...\".\n"
-        "- No \"Note:\" labels or explanations.\n"
-        "- No markdown, no quotation marks, no curly quotes, no em dashes.\n"
-        "- Do not repeat or copy a previous line.\n"
-        "- Do not use the exact phrase \"an endless road\".\n"
-        "- Do not mention love or missing someone directly. Show it through a single image or action.\n"
-        "- Do not use the weather as the main image.\n"
-        "- One style trial: in the manner of Borges, about time, the moon, mirrors, labyrinths, dreams, or an endless road; never quote Borges, never name him, and never copy a line from his poems or stories.\n"
-        f"- Today is {time_a} in one city and {time_b} in the other.\n"
-        f"- {weather_note}\n"
-        f"- Theme for today: {theme}." if theme else "- No theme today."
-        "\nReturn only the line."
+        "- A complete sentence directly expressing tender love, longing, or choosing her. "
+        "Address her as you; end with a period, !, or ?. Never use an ellipsis or an unfinished thought.\n"
+        "- Fresh each day; do not reuse a fixed phrase library or stock romance cliches.\n"
+        "- Do not invent private memories, ordinary life events (coffee/commute), "
+        "names, places, or the girlfriend's feelings. The speaker may express his own affection.\n"
+        "- The only situational facts you may use are each side's local daypart and cityless weather phrases.\n"
+        "- If a manual theme is provided, follow it within the hard limits; otherwise pick one tone: "
+        "timezone handoff, no-pressure ping, weather/time detail, gentle humor, or (rarely) a tiny optional question.\n"
+        "- Whatever the tone, make her feel loved; weather/time is only background, not the point.\n"
+        "- A continuous shared-garden story vibe is OCCASIONAL only - not a daily check-in ritual.\n"
+        "\n"
+        "Timezone handoff must read well for BOTH recipients in one line "
+        "(no single-sided \"good morning\" unless it still fits both).\n"
+        "No-pressure lines must not demand a reply.\n"
+        f"Questions, if any, must be skippable and still at most {ENGLISH_LINE_MAX} printable ASCII characters.\n"
+        "Style trial: write in the quiet, literary spirit of Jorge Luis Borges - time, the moon, mirrors, labyrinths, dreams, or an endless road; never quote Borges, never name him, and never copy a line from his poems or stories.\n"
+        "Output only the single line itself, ending with . or ! or ?, "
+        "with no quotes, markdown, labels, emoji, explanations, or line breaks."
     )
+    facts: list[str] = []
+    if daypart_a in _DAYPARTS:
+        facts.append(f"side_a_daypart={daypart_a}")
+    if daypart_b in _DAYPARTS:
+        facts.append(f"side_b_daypart={daypart_b}")
+    if weather_a:
+        facts.append(f"side_a_weather={weather_a}")
+    if weather_b:
+        facts.append(f"side_b_weather={weather_b}")
+    if facts:
+        prompt += "\nAllowed facts: " + "; ".join(facts) + "."
+    if theme is not None:
+        prompt += f" Today's optional theme: {theme}"
     if special_fact is not None:
         prompt = prompt.replace(
             "Exactly one line: no line breaks.",
             "For this special day, write a short poem of 2-4 lines, or one longer sentence.",
         )
         prompt = prompt.replace(
-            f"Max {ENGLISH_LINE_MAX} printable ASCII characters in total, counting spaces and punctuation.",
-            f"Max {GENERATED_LINE_MAX} printable ASCII characters in total, counting spaces and punctuation, and at most {GENERATED_MAX_LINES} lines.",
+            f"Max {ENGLISH_LINE_MAX} printable ASCII characters, counting spaces and punctuation; "
+            f"aim for {TARGET_LINE_LEN} characters or fewer (about 6 to 9 words). Short beats clever.",
+            f"Max {GENERATED_LINE_MAX} printable ASCII characters, counting spaces and punctuation, and at most {GENERATED_MAX_LINES} lines; a short poem of 2-4 lines, or one longer sentence, is welcome today.",
         )
         prompt = prompt.replace(
-            "Do not write a long sentence or a multi-line poem: aim for 40 characters or fewer.",
-            "A short poem of 2-4 lines, or one longer sentence, is welcome today.",
+            f"at most {ENGLISH_LINE_MAX} printable ASCII characters.",
+            f"at most {GENERATED_LINE_MAX} printable ASCII characters.",
         )
-        special_line = (
-            f"Today is a special day: {special_fact}. "
+        prompt = prompt.replace(
+            "with no quotes, markdown, labels, emoji, explanations, or line breaks.",
+            "with no quotes, markdown, labels, emoji, or explanations; on this special day, up to 4 lines are allowed.",
+        )
+        prompt += (
+            f"\nToday is a special day: {special_fact}. "
             "This line must be written about this day."
         )
-        if "Return only the line." in prompt:
-            prompt = prompt.replace(
-                "Return only the line.", f"{special_line}\nReturn only the line."
-            )
-        else:
-            prompt += f"\n{special_line}\nReturn only the line."
     return prompt
 
 
+def _unavailable(reason: str) -> None:
+    """Report one non-sensitive category, never a response or exception body."""
+    print(f"line_failure={reason}", file=sys.stderr)
+    raise DeepSeekLineError()
+
+
+def _request_line(
+    key: str, prompt: str, timeout: float | tuple[float, float]
+) -> tuple[str | None, str | None, tuple[str, ...]]:
+    """Return a validated line (plus normalization tokens) or one fixed failure class."""
+    data = None
+    status = None
+    try:
+        response = requests.post(
+            ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "deepseek-flash",
+                "messages": [{"role": "user", "content": prompt}],
+                "thinking": {"type": "disabled"},
+                "stream": False,
+            },
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        status = response.status_code
+        if status == 200:
+            data = response.json()
+    except requests.RequestException:
+        return None, "request_failed", ()
+    except (ValueError, TypeError):
+        return None, "invalid_json", ()
+    if status != 200:
+        safe_status = status if type(status) is int and status in {
+            400, 401, 402, 403, 404, 408, 422, 429, 500, 503
+        } else "other"
+        return None, f"http_{safe_status}", ()
+    if not isinstance(data, dict):
+        return None, "invalid_response", ()
+    choices = data.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        return None, "invalid_response", ()
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        return None, "invalid_response", ()
+    if choice.get("finish_reason") != "stop":
+        return None, "abnormal_finish", ()
+    message = choice.get("message")
+    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+        return None, "invalid_response", ()
+    line, applied = normalize_generated_line(message["content"])
+    reason = invalid_text_reason(line)
+    if reason is not None:
+        return None, f"invalid_text:{reason}", ()
+    return line, None, applied
+
+
+def normalize_generated_line(text: str) -> tuple[str, tuple[str, ...]]:
+    """Apply only deterministic, meaning-preserving cleanups to model output.
+
+    Never truncates, never rewrites words, never strips or rewrites Note:.
+    Returns the normalized text and fixed tokens naming which steps changed it.
+    """
+    applied: list[str] = []
+    out = text.strip()
+    if out != text:
+        applied.append("outer_space")
+    step = out.translate(_QUOTE_MAP)
+    if step != out:
+        applied.append("curly_quotes")
+    out = step
+    step = out.translate(_DASH_MAP)
+    if step != out:
+        applied.append("dashes")
+    out = step
+    if len(out) >= 2 and out[0] in _WRAPPERS and out[-1] == out[0]:
+        out = out[1:-1].strip()
+        applied.append("wrapping_quotes")
+    step = _INLINE_SPACE_RE.sub(" ", out)
+    if step != out:
+        applied.append("inner_space")
+    out = step
+    return out, tuple(applied)
+
+
+def invalid_text_reason(line: str) -> str | None:
+    """Return a fixed reason token for a rejected line, forbidden_label, or None if valid."""
+    if not line:
+        return "empty"
+    if any(char in _LINE_BREAKS and char != "\n" for char in line):
+        return "multiline"
+    if line.count("\n") >= GENERATED_MAX_LINES:
+        return "multiline"
+    if not line.isascii():
+        return "non_ascii"
+    if any(not char.isprintable() and char != "\n" for char in line):
+        return "non_printable"
+    if len(line) > GENERATED_LINE_MAX:
+        return "too_long"
+    if line[0] in _WRAPPERS or line[-1] in _WRAPPERS:
+        return "quoted"
+    if contains_forbidden_note_label(line):
+        return "forbidden_label"
+    if "..." in line:
+        return "ellipsis"
+    if line[-1] not in ".!?":
+        if line[-1] in "*_" or line[0] in "*_#>":
+            return "markdown"
+        return "no_end_punct"
+    return None
+
+
 def generate_love_line(
-    theme=None,
+    theme: str | None = None,
     *,
-    time_a,
-    time_b,
-    weather_a,
-    weather_b,
-    special_fact=None,
-):
-    _validate_daily_inputs(theme, time_a, time_b, weather_a, weather_b)
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise DeepSeekLineError
+    time_a: str | None = None,
+    time_b: str | None = None,
+    weather_a: str | None = None,
+    weather_b: str | None = None,
+    timeout: float | tuple[float, float] = (5, 30),
+    special_fact: str | None = None,
+) -> str:
+    """Ask for a fresh dual-reader letter line; reject any failed or partial completion."""
+    key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+    if not key:
+        _unavailable("missing_key")
+    if theme is not None:
+        valid_theme = False
+        try:
+            validate_inputs("2026-01-01", theme, None)
+            valid_theme = True
+        except DailyContentError:
+            pass
+        if not valid_theme:
+            _unavailable("invalid_theme")
     prompt = build_love_line_prompt(
         theme,
-        daypart_a=daypart_from_hhmm(time_a),
-        daypart_b=daypart_from_hhmm(time_b),
-        weather_a=weather_a,
-        weather_b=weather_b,
+        daypart_a=daypart_from_hhmm(time_a) if time_a is not None else None,
+        daypart_b=daypart_from_hhmm(time_b) if time_b is not None else None,
+        weather_a=sanitize_weather_fact(weather_a),
+        weather_b=sanitize_weather_fact(weather_b),
         special_fact=special_fact,
     )
-    try:
-        return _request_with_retries(api_key, prompt)
-    except DeepSeekLineError:
-        raise
-    except Exception:
-        raise DeepSeekLineError
-
-
-if __name__ == "__main__":
-    sys.exit("deepseek_line is a library module; run src/main.py instead")
+    last_failure = "invalid_response"
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        line, failure, applied = _request_line(key, prompt, timeout)
+        if line is not None:
+            if applied:
+                # Fixed step names only, never the text before or after.
+                print(f"line_normalized={','.join(applied)}", file=sys.stderr)
+            print("line_source=deepseek", file=sys.stderr)
+            return line
+        last_failure = failure or "invalid_response"
+        if not last_failure.startswith("invalid_text:"):
+            _unavailable(last_failure)
+        reason = last_failure.split(":", 1)[1]
+        category = "forbidden_label" if reason == "forbidden_label" else "invalid_text"
+        if attempt < MAX_ATTEMPTS:
+            # Fixed tokens only: attempt number, category, reason. Never the text.
+            if category == "invalid_text":
+                print(f"line_retry={attempt} category=invalid_text reason={reason}", file=sys.stderr)
+            else:
+                print(f"line_retry={attempt} category=forbidden_label", file=sys.stderr)
+        reason = last_failure.split(":", 1)[1]
+        if reason == "forbidden_label":
+            _unavailable("forbidden_label")
+        _unavailable(f"invalid_text reason={reason}")
+    raise DeepSeekLineError()  # Unreachable; _unavailable always raises.
