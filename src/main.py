@@ -30,18 +30,6 @@ class ConfigError(ValueError):
     """安全配置错误；消息不得包含凭据值。"""
 
 
-def _shanghai_today() -> date:
-    return local_today("Asia/Shanghai")
-
-
-def _label(today: date) -> str:
-    return today.strftime("%Y-%m-%d")
-
-
-def greeting() -> str:
-    return "Good morning"
-
-
 def resolve_send_mode() -> str:
     """解析发送模式；缺失时默认 dry-run，未知值拒绝运行。"""
     mode = _env("SEND_MODE", "dry-run").lower()
@@ -50,154 +38,208 @@ def resolve_send_mode() -> str:
     return mode
 
 
-def resolve_openid() -> str:
-    """解析当前时段的微信接收人。"""
-    slot = _env("PUSH_SLOT", "us")
-    if slot == "cn":
-        key = "WECHAT_OPENID_CN"
-    elif slot == "us":
-        key = "WECHAT_OPENID_SELF"
-    else:
-        raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
-    value = _env(key)
-    if not value:
-        raise ConfigError(f"缺少 {key}")
-    return value
-
-
-def validate_send_context(mode: str) -> None:
+def validate_send_context(mode: str, slot: str) -> None:
     """真发仅允许独立的手动确认或对应收件人已启用的定时上下文。"""
     if mode != "live":
         return
-    slot = _env("PUSH_SLOT", "us")
-    if slot == "cn":
-        return
-    if slot != "us":
+    if slot not in {"cn", "us"}:
         raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
-    action = _env("GITHUB_EVENT_NAME")
-    if action == "workflow_dispatch":
-        live_dispatch_mode = _env("LIVE_DISPATCH_MODE")
-        live_dispatch_slot = _env("LIVE_DISPATCH_SLOT")
-        live_dispatch_date = _env("LIVE_DISPATCH_DATE")
+    recipient = os.getenv("LIVE_RECIPIENT")
+    allowed = {
+        "self": ("us", "SEND_SELF_ONCE"),
+        "cn": ("cn", "SEND_CN_ONCE"),
+        "both": ("cn", None),
+    }
+    if recipient not in allowed:
+        raise ConfigError("live 需要明确的 LIVE_RECIPIENT=self、cn 或 both")
+    expected_slot, expected_confirmation = allowed[recipient]
+    if slot != expected_slot:
+        raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
+    # 防误操作门禁：定时发送与受控手动发送的条件彼此独立。
+    if os.getenv("GITHUB_ACTIONS") != "true":
+        raise ConfigError("阶段 C 的 live 仅允许由 GitHub Actions 受控触发")
+    if recipient == "both":
+        claimed_day = os.getenv("DAILY_CLAIM_DATE")
         if (
-            live_dispatch_mode != "daily-both"
-            or live_dispatch_slot != "both"
-            or live_dispatch_date != _shanghai_today().isoformat()
+            os.getenv("DAILY_CLAIM_CREATED") != "true"
+            or claimed_day != local_today("Asia/Shanghai").isoformat()
+            or os.getenv("ENABLE_CN_DAILY") != "1"
+            or os.getenv("ENABLE_SELF_DAILY") != "1"
         ):
-            raise ConfigError("workflow_dispatch live 需要匹配的 dispatch 上下文")
-    elif action == "schedule":
-        if _env("ENABLE_SELF_DAILY") != "1":
-            raise ConfigError("schedule live 需要 ENABLE_SELF_DAILY=1")
-    else:
-        raise ConfigError("live 仅允许 workflow_dispatch 或 schedule")
-
-
-def validate_live_configuration(mode: str, send_hour: int) -> None:
-    """真发仅允许受控的定时或手动确认；干跑不检查。"""
-    if mode != "live":
+            raise ConfigError("live-both 需要有效的当日 claim")
+        if (
+            os.getenv("LIVE_DISPATCH_MODE") != "daily-both"
+            or os.getenv("LIVE_DISPATCH_SLOT") != "both"
+            or os.getenv("LIVE_DISPATCH_DATE") != claimed_day
+        ):
+            raise ConfigError("live-both 需要匹配的 dispatch 上下文")
         return
-    if send_hour not in {6, 7, 8, 9, 10, 11}:
-        raise ConfigError("SEND_HOUR 只能是 6 到 11")
+    confirmation = os.getenv("LIVE_CONFIRMATION")
+    if confirmation != expected_confirmation:
+        raise ConfigError("live 需要正确的 LIVE_CONFIRMATION")
+
+
+def resolve_openid() -> str:
+    """按已选角色解析专用 OpenID，不使用通用或另一位接收者回退。"""
+    recipient = os.getenv("LIVE_RECIPIENT")
+    slot = os.getenv("PUSH_SLOT")
+    if (recipient, slot) == ("self", "us"):
+        name = "WECHAT_OPENID_SELF"
+    elif (recipient, slot) == ("cn", "cn"):
+        name = "WECHAT_OPENID_CN"
+    else:
+        raise ConfigError("live 收件角色与 PUSH_SLOT 不匹配")
+    oid = _env(name)
+    if not oid:
+        raise ConfigError(f"缺少 {name}")
+    return oid
+
+
+def validate_live_configuration() -> list[tuple[str, str]]:
+    """校验真发配置，返回按发送顺序排列的 (role, openid)；不返回凭据。"""
+    if not _env("WECHAT_APP_ID") or not _env("WECHAT_APP_SECRET"):
+        raise ConfigError("缺少微信应用凭据")
     if not _env("WECHAT_TEMPLATE_ID"):
         raise ConfigError("缺少 WECHAT_TEMPLATE_ID")
-    _ = resolve_openid()
-    if _env("DAILY_CLAIM_CREATED") != "true":
-        raise ConfigError("缺少有效的 DAILY_CLAIM_CREATED")
-    if _env("DAILY_CLAIM_DATE") != _shanghai_today().isoformat():
-        raise ConfigError("DAILY_CLAIM_DATE 与上海日期不匹配")
+    recipient = os.getenv("LIVE_RECIPIENT")
+    if recipient == "both":
+        cn_openid = _env("WECHAT_OPENID_CN")
+        self_openid = _env("WECHAT_OPENID_SELF")
+        if not cn_openid or not self_openid:
+            raise ConfigError("缺少双人真发 OpenID")
+        if cn_openid == self_openid:
+            raise ConfigError("双人真发 OpenID 不能相同")
+        return [("cn", cn_openid), ("self", self_openid)]
+    return [(os.environ["LIVE_RECIPIENT"], resolve_openid())]
 
 
-def build_payload_fields() -> dict:
+def build_payload_fields() -> dict[str, str]:
     """为 dry-run 与 live 共用的一份数据组装；真发时绝不重新生成。"""
-    today = _shanghai_today()
-    if os.getenv("DAILY_MESSAGE_CONFIG") is not None and os.getenv(
-        "DAILY_MESSAGE_CONFIG", ""
-    ).strip():
-        config = parse_config(os.getenv("DAILY_MESSAGE_CONFIG"))
-    else:
-        config = None
-    known_start = date.fromisoformat(_env("KNOWN_START_DATE", "2019-09-02"))
-    love_start = _env("LOVE_START_DATE")
-    next_meet = _env("NEXT_MEET_DATE")
-    if not love_start:
-        raise ConfigError("缺少 LOVE_START_DATE")
-    if not next_meet:
-        raise ConfigError("缺少 NEXT_MEET_DATE")
-    love_start_date = date.fromisoformat(love_start)
-    next_meet_date = date.fromisoformat(next_meet)
-    love_days_text = str(love_days(love_start_date.isoformat(), today))
-    known_days_text = str(love_days(known_start.isoformat(), today))
     city_a = _env("CITY_A", "Ann Arbor")
     city_b = _env("CITY_B", "Shanghai")
-    weather_a, weather_b = brief_weather(city_a)
-    clock_a = local_now_str(_env("CITY_A_TZ", "America/Detroit"))
-    clock_b = local_now_str(_env("CITY_B_TZ", "Asia/Shanghai"))
-    if not weather_a or not weather_b or not clock_a or not clock_b:
-        raise ConfigError("缺少天气或时钟信息")
-    exact, theme, _ = choose_line(config, today)
+    if not city_a.isascii() or not city_b.isascii():
+        raise ConfigError("城市名必须为英文")
+    tz_a = _env("CITY_A_TZ", "America/Detroit")
+    tz_b = _env("CITY_B_TZ", "Asia/Shanghai")
+    slot = _env("PUSH_SLOT").lower()
+    if slot not in {"cn", "us"}:
+        raise ConfigError("PUSH_SLOT 只能是 cn 或 us")
+    known_start = date.fromisoformat(_env("KNOWN_START_DATE", "2019-09-02")).isoformat()
+    love_start = _env("LOVE_START_DATE")
+    next_meet = _env("NEXT_MEET_DATE")
+    paired_delivery = os.getenv("LIVE_RECIPIENT") == "both"
+    today = local_today("Asia/Shanghai" if paired_delivery else (tz_b if slot == "cn" else tz_a))
+    if paired_delivery and _env("SEND_MODE").lower() == "live" and today.isoformat() != _env("DAILY_CLAIM_DATE"):
+        raise ConfigError("双人真发日期已变化，已停止发送")
+    known_days = love_days(known_start, today=today)
+    if slot == "cn" and _env("DAILY_MESSAGE_CONFIG"):
+        config = parse_config(_env("DAILY_MESSAGE_CONFIG"))
+    else:
+        config = None
+    exact, theme, _, override_status = choose_line(config, today)
+    if slot == "cn":
+        print(f"shanghai_day={today.isoformat()} override_status={override_status}", file=sys.stderr)
+    weather_a = brief_weather(city_a)
+    weather_b = brief_weather(city_b)
+    time_a = local_now_str(tz_a)
+    time_b = local_now_str(tz_b)
     if exact is not None:
         short_line = exact
-        print("line_source=exact", file=sys.stderr)
-        if not (
-            isinstance(short_line, str)
-            and 1 <= len(short_line) <= ENGLISH_LINE_MAX
-            and short_line.isascii()
-            and short_line.isprintable()
-            and not contains_forbidden_note_label(short_line)
-        ):
-            raise ConfigError("小信内容非法")
+        print("line_source=manual", file=sys.stderr)
     else:
+        # 特殊日事实只在生成路径计算：在 theme/exact 选择之后、
+        # 调用生成器之前传入；手动 exact 路径保持原样不动。
         special_fact = get_special_fact(
-            today, love_start_date, next_meet_date, known_start
+            today,
+            date.fromisoformat(love_start),
+            date.fromisoformat(next_meet),
+            date.fromisoformat(known_start),
         )
         short_line = generate_love_line(
             theme=theme,
-            time_a=clock_a,
-            time_b=clock_b,
+            time_a=time_a,
+            time_b=time_b,
             weather_a=weather_a,
             weather_b=weather_b,
             special_fact=special_fact,
         )
-        print("line_source=generated", file=sys.stderr)
-        if not (
-            isinstance(short_line, str)
-            and 1 <= len(short_line) <= GENERATED_LINE_MAX
-            and short_line.isascii()
-            and len(short_line.split("\n")) <= GENERATED_MAX_LINES
-            and all(ch.isprintable() or ch == "\n" for ch in short_line)
-            and not contains_forbidden_note_label(short_line)
-            and "..." not in short_line
-            and "\u2026" not in short_line
+    if exact is not None:
+        if (
+            not isinstance(short_line, str)
+            or not (1 <= len(short_line) <= ENGLISH_LINE_MAX)
+            or not short_line.isascii()
+            or not short_line.isprintable()
+            or contains_forbidden_note_label(short_line)
         ):
-            raise ConfigError("小信内容非法")
+            raise ConfigError("Invalid English love line")
+    else:
+        if (
+            not isinstance(short_line, str)
+            or not (1 <= len(short_line) <= GENERATED_LINE_MAX)
+            or not short_line.isascii()
+            or len(short_line.split("\n")) > GENERATED_MAX_LINES
+            or any(not ch.isprintable() and ch != "\n" for ch in short_line)
+            or contains_forbidden_note_label(short_line)
+            or "..." in short_line
+            or "\u2026" in short_line
+        ):
+            raise ConfigError("Invalid English love line")
+    # The visible card shows meet_days; it must never show a clipped line,
+    # so the love line must fit beside the countdown, not just on its own.
     love_line = short_line
     if exact is not None and len(love_line) > LOVE_LINE_MAX:
-        raise ConfigError("小信内容超过模板 love_line 长度")
+        raise ConfigError("Love line exceeds template limit")
     if exact is None and len(love_line) > GENERATED_LINE_MAX:
-        raise ConfigError("小信内容超过模板 love_line 长度")
-    countdown = meet_status(next_meet, today)
+        raise ConfigError("Love line exceeds template limit")
+    countdown = meet_status(next_meet, today=today)
     visible_line = short_line.strip()
+    if not visible_line:
+        raise ConfigError("Love line has no visible text")
     mirrored = f"{countdown} | {visible_line}"
-    if len(mirrored) <= LOVE_LINE_MAX:
+    if exact is not None:
+        available = LOVE_LINE_MAX - len(countdown) - len(" | ")
+        if available < 1:
+            raise ConfigError("Meeting field has no room for the love line")
+        if len(visible_line) > available:
+            raise ConfigError("Love line exceeds visible meeting field")
+        meet_days = mirrored
+    elif len(mirrored) <= LOVE_LINE_MAX:
         meet_days = mirrored
     elif countdown:
+        # 全文放不进现有 meet_days 可用空间时只放倒计时本身，
+        # 绝不截断诗句；全文仍保留在 love_line 字段。
         meet_days = countdown
     else:
         meet_days = ""
-    return {
-        "date": _label(today),
-        "greeting": greeting(),
+    greeting = f"Known: \u2248{known_days} days"
+    if len(greeting) > 20:
+        greeting = f"Known \u2248{known_days}d"
+    if len(greeting) > 20:
+        raise ConfigError("Known greeting exceeds template limit")
+    ld = love_days(love_start, today=today)
+    fields = {
+        "greeting": greeting,
         "city_a": city_a,
-        "time_a": clock_a,
+        "time_a": time_a,
         "weather_a": weather_a,
         "city_b": city_b,
-        "time_b": clock_b,
+        "time_b": time_b,
         "weather_b": weather_b,
-        "love_days": love_days_text,
+        "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
         "meet_days": meet_days,
         "love_line": love_line,
         "weather_source": weather_source(),
     }
+    for key, value in fields.items():
+        if key == "greeting":
+            valid = value.replace("\u2248", "").isascii()
+        elif key in {"weather_a", "weather_b"}:
+            valid = value.replace("\u00b0", "").isascii()
+        else:
+            valid = value.isascii()
+        if not valid:
+            raise ConfigError("Message contains non-English characters")
+    return fields
 
 
 def build_message_from_fields(fields: dict, dry_run: bool) -> dict:
@@ -214,45 +256,82 @@ def deliver(payload: dict, dry_run: bool) -> str:
 
 
 def apply_send_hold(mode: str) -> None:
-    if mode != "live":
-        return
-    if hold_applies():
-        wait_for_send_time()
-    else:
-        preview_hold()
-
-
-def run() -> int:
-    mode = resolve_send_mode()
-    validate_send_context(mode)
-    send_hour_text = _env("SEND_HOUR", "7")
-    if not send_hour_text.isdigit():
-        raise ConfigError("SEND_HOUR 必须是数字")
-    send_hour = int(send_hour_text)
-    validate_live_configuration(mode, send_hour)
-    apply_send_hold(mode)
-    fields = build_payload_fields()
-    payload = build_message_from_fields(fields, mode != "live")
-    if mode == "live":
-        print("line_source=generated", file=sys.stderr)
-        print("live_send_attempt", file=sys.stderr)
-        deliver(payload, False)
-        return 0
-    print("dry_run_payload")
-    print(json.dumps(fields, ensure_ascii=False, indent=2, sort_keys=True))
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
+    """仅 LIVE Both daily-both 等待；预览 both 只记录；其他模式不做任何事。"""
+    try:
+        if hold_applies(mode):
+            wait_for_send_time(os.getenv("DAILY_CLAIM_DATE"))
+        elif mode == "dry-run" and os.getenv("LIVE_RECIPIENT") == "both":
+            preview_hold()
+    except Exception:
+        print("send_hold=skipped reason=error", file=sys.stderr)
 
 
 def main() -> int:
+    mode = resolve_send_mode()
+    raw_slot = _env("PUSH_SLOT")
+    slot = raw_slot.lower() if raw_slot else "us"
     try:
-        return run()
+        validate_send_context(mode, raw_slot if mode == "live" else slot)
+        recipients = validate_live_configuration() if mode == "live" else []
     except ConfigError as exc:
         print(f"配置错误：{exc}", file=sys.stderr)
         return 2
-    except Exception as exc:  # noqa: BLE001 - 统一失败出口，不输出凭据
-        print(f"运行失败：{type(exc).__name__}", file=sys.stderr)
+    try:
+        fields = build_payload_fields()
+        template_data = build_template_data(fields)
+        if any(
+            template_data[key]["value"] != fields[key]
+            for key in ("meet_days", "love_line")
+        ):
+            raise ValueError("Meeting or love line was not rendered intact")
+    except SystemExit:
+        raise
+    except Exception:
+        print("组装数据失败（详情已隐藏）", file=sys.stderr)
         return 1
+    try:
+        if (
+            mode == "live"
+            and os.getenv("LIVE_RECIPIENT") == "both"
+            and local_today("Asia/Shanghai").isoformat() != os.getenv("DAILY_CLAIM_DATE")
+        ):
+            raise ConfigError("双人真发日期已变化，已停止发送")
+    except ConfigError as exc:
+        print(f"配置错误：{exc}", file=sys.stderr)
+        return 2
+    apply_send_hold(mode)
+    if mode == "dry-run":
+        payload_preview = {
+            "touser": "REDACTED",
+            "template_id": "REDACTED",
+            "data": template_data,
+            "meta": {
+                "push_slot": slot,
+                "send_mode": mode,
+                "qweather_key_set": bool(os.getenv("QWEATHER_API_KEY")),
+                "qweather_host_set": bool(os.getenv("QWEATHER_API_HOST")),
+                "deepseek_key_set": bool(os.getenv("DEEPSEEK_API_KEY")),
+            },
+        }
+        print(json.dumps(payload_preview, ensure_ascii=False, indent=2, sort_keys=True))
+        print("SEND_MODE=dry-run：已跳过发送。")
+        return 0
+    for role, openid in recipients:
+        try:
+            result = send_template(openid, template_data)
+            safe_result = {
+                "ok": True,
+                "errcode": result.get("errcode") if isinstance(result, dict) else None,
+                "msgid": result.get("msgid") if isinstance(result, dict) else None,
+            }
+            if len(recipients) == 2:
+                safe_result["recipient"] = role
+            print(json.dumps(safe_result, ensure_ascii=False, sort_keys=True))
+        except Exception:
+            role_note = f"（收件角色：{role}）" if len(recipients) == 2 else ""
+            print(f"发送失败（详情已脱敏）{role_note}", file=sys.stderr)
+            return 1
+    return 0
 
 
 if __name__ == "__main__":
