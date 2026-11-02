@@ -16,18 +16,23 @@ from daily_content import (
 )
 from weather import UNAVAILABLE_CONFIG, UNAVAILABLE_REQUEST
 
+
 ENDPOINT = "https://api.deepseek.com/chat/completions"
 _DAYPARTS = frozenset({"morning", "afternoon", "evening", "night"})
+
 # Generation attempts for content-only rejections (invalid_text/forbidden_label).
 # HTTP, auth, network and malformed-response failures still stop immediately.
 MAX_ATTEMPTS = 5
 # Ask for well under the hard cap so a slightly long reply still fits.
 TARGET_LINE_LEN = 40
-# Safety cap for generated text, not a creative target. Ordinary days
-# still aim for TARGET_LINE_LEN and one line; special days may use
-# up to this cap and at most GENERATED_MAX_LINES lines.
+
+# Safety cap for generated content only (not a creative target): ordinary
+# single lines still aim for TARGET_LINE_LEN and at most ENGLISH_LINE_MAX
+# in the prompt, but validation accepts up to 200 characters / 4 lines so a
+# short special-day poem is not rejected for length alone.
 GENERATED_LINE_MAX = 200
 GENERATED_MAX_LINES = 4
+
 # Deterministic, meaning-preserving character mappings for generated text only.
 _CURLY_SINGLE = "\u2018\u2019\u201a\u201b"
 _CURLY_DOUBLE = "\u201c\u201d\u201e\u201f"
@@ -40,6 +45,7 @@ _WRAPPERS = "\"'`"
 # Horizontal whitespace only; line breaks are never collapsed (they stay multiline).
 _INLINE_SPACE_RE = re.compile(r"[^\S\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+")
 _LINE_BREAKS = frozenset("\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+
 # Fixed diagnostic reason tokens for invalid_text; never include line text.
 INVALID_TEXT_REASONS = frozenset({
     "empty",
@@ -102,12 +108,6 @@ def build_love_line_prompt(
     special_fact: str | None = None,
 ) -> str:
     """Build the dual-reader generation prompt; never include secrets or city names."""
-    if special_fact is not None and (
-        not isinstance(special_fact, str)
-        or not special_fact.strip()
-        or any(char in _LINE_BREAKS for char in special_fact)
-    ):
-        raise DeepSeekLineError()
     prompt = (
         "Write ONE original, romantic English sentence from me to my girlfriend; "
         "both receive the same message.\n"
@@ -134,13 +134,40 @@ def build_love_line_prompt(
         "- A continuous shared-garden story vibe is OCCASIONAL only - not a daily check-in ritual.\n"
         "\n"
         "Timezone handoff must read well for BOTH recipients in one line "
-        "(no single-sided \"good morning\" unless it still fits both).\n"
+        '(no single-sided "good morning" unless it still fits both).\n'
         "No-pressure lines must not demand a reply.\n"
         f"Questions, if any, must be skippable and still at most {ENGLISH_LINE_MAX} printable ASCII characters.\n"
-        "Style trial: write in the quiet, literary spirit of Jorge Luis Borges - time, the moon, mirrors, labyrinths, dreams, or an endless road; never quote Borges, never name him, and never copy a line from his poems or stories.\n"
+        "Style trial: write in the quiet, literary spirit of Jorge Luis Borges - time, the moon, mirrors, labyrinths, dreams, endless paths - in your own original words; never quote or copy his lines.\n"
         "Output only the single line itself, ending with . or ! or ?, "
         "with no quotes, markdown, labels, emoji, explanations, or line breaks."
     )
+    if special_fact is not None:
+        if (
+            not isinstance(special_fact, str)
+            or not special_fact.strip()
+            or any(char in _LINE_BREAKS for char in special_fact)
+        ):
+            raise DeepSeekLineError()
+        prompt = prompt.replace(
+            "Exactly one line: no line breaks.",
+            "Either one longer sentence, or a short poem of 2-4 lines.",
+        )
+        prompt = prompt.replace(
+            f"Max {ENGLISH_LINE_MAX} printable ASCII characters, counting spaces and punctuation; "
+            f"aim for {TARGET_LINE_LEN} characters or fewer (about 6 to 9 words). Short beats clever.",
+            f"Max {GENERATED_LINE_MAX} printable ASCII characters in total, "
+            f"at most {GENERATED_MAX_LINES} lines. Short beats clever.",
+        )
+        prompt = prompt.replace(
+            f"Questions, if any, must be skippable and still at most {ENGLISH_LINE_MAX} printable ASCII characters.",
+            f"Questions, if any, must be skippable and still at most {GENERATED_LINE_MAX} printable ASCII characters.",
+        )
+        prompt = prompt.replace(
+            "Output only the single line itself, ending with . or ! or ?, "
+            "with no quotes, markdown, labels, emoji, explanations, or line breaks.",
+            "Output only the sentence or short poem itself, ending with . or ! or ?, "
+            "with no quotes, markdown, labels, emoji, or explanations.",
+        )
     facts: list[str] = []
     if daypart_a in _DAYPARTS:
         facts.append(f"side_a_daypart={daypart_a}")
@@ -155,27 +182,7 @@ def build_love_line_prompt(
     if theme is not None:
         prompt += f" Today's optional theme: {theme}"
     if special_fact is not None:
-        prompt = prompt.replace(
-            "Exactly one line: no line breaks.",
-            "For this special day, write a short poem of 2-4 lines, or one longer sentence.",
-        )
-        prompt = prompt.replace(
-            f"Max {ENGLISH_LINE_MAX} printable ASCII characters, counting spaces and punctuation; "
-            f"aim for {TARGET_LINE_LEN} characters or fewer (about 6 to 9 words). Short beats clever.",
-            f"Max {GENERATED_LINE_MAX} printable ASCII characters, counting spaces and punctuation, and at most {GENERATED_MAX_LINES} lines; a short poem of 2-4 lines, or one longer sentence, is welcome today.",
-        )
-        prompt = prompt.replace(
-            f"at most {ENGLISH_LINE_MAX} printable ASCII characters.",
-            f"at most {GENERATED_LINE_MAX} printable ASCII characters.",
-        )
-        prompt = prompt.replace(
-            "with no quotes, markdown, labels, emoji, explanations, or line breaks.",
-            "with no quotes, markdown, labels, emoji, or explanations; on this special day, up to 4 lines are allowed.",
-        )
-        prompt += (
-            f"\nToday is a special day: {special_fact}. "
-            "This line must be written about this day."
-        )
+        prompt += f"\nToday is a special day: {special_fact}. This line must be written about this day."
     return prompt
 
 
@@ -214,6 +221,7 @@ def _request_line(
         return None, "request_failed", ()
     except (ValueError, TypeError):
         return None, "invalid_json", ()
+
     if status != 200:
         safe_status = status if type(status) is int and status in {
             400, 401, 402, 403, 404, 408, 422, 429, 500, 503
@@ -301,13 +309,14 @@ def generate_love_line(
     time_b: str | None = None,
     weather_a: str | None = None,
     weather_b: str | None = None,
-    timeout: float | tuple[float, float] = (5, 30),
     special_fact: str | None = None,
+    timeout: float | tuple[float, float] = (5, 30),
 ) -> str:
     """Ask for a fresh dual-reader letter line; reject any failed or partial completion."""
     key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
     if not key:
         _unavailable("missing_key")
+
     if theme is not None:
         valid_theme = False
         try:
@@ -317,6 +326,7 @@ def generate_love_line(
             pass
         if not valid_theme:
             _unavailable("invalid_theme")
+
     prompt = build_love_line_prompt(
         theme,
         daypart_a=daypart_from_hhmm(time_a) if time_a is not None else None,
@@ -325,6 +335,7 @@ def generate_love_line(
         weather_b=sanitize_weather_fact(weather_b),
         special_fact=special_fact,
     )
+
     last_failure = "invalid_response"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         line, failure, applied = _request_line(key, prompt, timeout)
@@ -345,8 +356,8 @@ def generate_love_line(
                 print(f"line_retry={attempt} category=invalid_text reason={reason}", file=sys.stderr)
             else:
                 print(f"line_retry={attempt} category=forbidden_label", file=sys.stderr)
-        reason = last_failure.split(":", 1)[1]
-        if reason == "forbidden_label":
-            _unavailable("forbidden_label")
-        _unavailable(f"invalid_text reason={reason}")
+    reason = last_failure.split(":", 1)[1]
+    if reason == "forbidden_label":
+        _unavailable("forbidden_label")
+    _unavailable(f"invalid_text reason={reason}")
     raise DeepSeekLineError()  # Unreachable; _unavailable always raises.
