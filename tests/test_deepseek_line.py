@@ -38,7 +38,6 @@ class DeepSeekLineTests(unittest.TestCase):
         }
         return r
 
-
     def test_missing_key_never_makes_request_or_returns_fallback(self) -> None:
         with patch.dict(os.environ, {}, clear=True), patch.object(requests, "post") as post:
             with self.assertRaises(DeepSeekLineError):
@@ -497,7 +496,6 @@ class DeepSeekLineTests(unittest.TestCase):
                 )
 
     # ---- Retry budget ----
-
 
     def test_success_on_fifth_attempt_after_mixed_content_rejections(self) -> None:
         with (
