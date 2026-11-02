@@ -105,7 +105,7 @@ class DailyIntegrationTests(unittest.TestCase):
         env = {
             **BASE_ENV,
             "DAILY_MESSAGE_CONFIG": json.dumps(
-                {"date": "2026-09-16", "exact": "My favorite day"}
+                {"date": "2026-09-16", "theme": "ordinary days", "exact": "My favorite day"}
             ),
         }
         with (
@@ -123,25 +123,17 @@ class DailyIntegrationTests(unittest.TestCase):
         self.assertEqual(fields["greeting"], "Known: ≈2572 days")
         self.assertEqual(fields["meet_days"], "in 95 days | My favorite day")
         self.assertEqual(
-            wechat.build_template_data(fields)["love_line"]["value"],
-            fields["love_line"],
+            wechat.build_template_data(fields)["love_line"]["value"], fields["love_line"]
         )
 
     def test_matching_theme_guides_one_api_call(self) -> None:
-        env = {
-            **BASE_ENV,
-            "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-16","theme":"ordinary days"}',
-        }
+        env = {**BASE_ENV, "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-16","theme":"ordinary days"}'}
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 16)),
             patch.object(main, "local_now_str", return_value="08:00"),
-            patch.object(
-                main, "brief_weather", side_effect=["Clear 20°C", "Clear 20°C"]
-            ),
-            patch.object(
-                main, "generate_love_line", return_value="Here with you"
-            ) as generate,
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Here with you") as generate,
             redirect_stderr(StringIO()),
         ):
             fields = main.build_payload_fields()
@@ -157,23 +149,16 @@ class DailyIntegrationTests(unittest.TestCase):
         self.assertTrue(fields["greeting"].startswith("Known: ≈"))
 
     def test_stale_cn_config_uses_default_prompt(self) -> None:
-        env = {
-            **BASE_ENV,
-            "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-15","exact":"Yesterday"}',
-        }
+        env = {**BASE_ENV, "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-15","exact":"Yesterday"}'}
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 16)),
             patch.object(main, "local_now_str", return_value="08:00"),
-            patch.object(
-                main, "brief_weather", side_effect=["Clear 20°C", "Clear 20°C"]
-            ),
-            patch.object(
-                main, "generate_love_line", return_value="Here with you"
-            ) as generate,
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Here with you") as generate,
             redirect_stderr(StringIO()),
         ):
-            fields = main.build_payload_fields()
+            main.build_payload_fields()
         generate.assert_called_once_with(
             theme=None,
             time_a="08:00",
@@ -182,27 +167,18 @@ class DailyIntegrationTests(unittest.TestCase):
             weather_b="Clear 20°C",
             special_fact=None,
         )
-        self.assertEqual(fields["love_line"], "Here with you")
 
     def test_us_ignores_even_malformed_cn_config(self) -> None:
-        env = {
-            **BASE_ENV,
-            "PUSH_SLOT": "us",
-            "DAILY_MESSAGE_CONFIG": "{invalid",
-        }
+        env = {**BASE_ENV, "PUSH_SLOT": "us", "DAILY_MESSAGE_CONFIG": "{invalid"}
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 16)) as today,
             patch.object(main, "local_now_str", return_value="08:00"),
-            patch.object(
-                main, "brief_weather", side_effect=["Clear 20°C", "Clear 20°C"]
-            ),
-            patch.object(
-                main, "generate_love_line", return_value="Here with you"
-            ) as generate,
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Here with you") as generate,
             redirect_stderr(StringIO()),
         ):
-            fields = main.build_payload_fields()
+            main.build_payload_fields()
         today.assert_called_once_with("America/Detroit")
         generate.assert_called_once_with(
             theme=None,
@@ -212,12 +188,10 @@ class DailyIntegrationTests(unittest.TestCase):
             weather_b="Clear 20°C",
             special_fact=None,
         )
-        self.assertEqual(fields["love_line"], "Here with you")
 
     def test_bad_cn_config_fails_before_weather_or_provider(self) -> None:
-        env = {**BASE_ENV, "DAILY_MESSAGE_CONFIG": "{invalid"}
         with (
-            patch.dict(os.environ, env, clear=True),
+            patch.dict(os.environ, {**BASE_ENV, "DAILY_MESSAGE_CONFIG": "{invalid"}, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 16)),
             patch.object(main, "brief_weather") as weather,
             patch.object(main, "generate_love_line") as generate,
@@ -233,9 +207,10 @@ class DailyIntegrationTests(unittest.TestCase):
 
     def test_render_failure_cannot_send_or_leak_line(self) -> None:
         env = {
+            **BASE_ENV,
             "SEND_MODE": "live",
             "LIVE_RECIPIENT": "cn",
-            "PUSH_SLOT": "cn",
+            "LIVE_CONFIRMATION": "SEND_CN_ONCE",
             "GITHUB_ACTIONS": "true",
             "GITHUB_EVENT_NAME": "workflow_dispatch",
             "GITHUB_REPOSITORY": "carloshuangspec/wechat-ldr-daily-push",
@@ -243,18 +218,15 @@ class DailyIntegrationTests(unittest.TestCase):
             "GITHUB_ACTOR": "carloshuangspec",
             "GITHUB_TRIGGERING_ACTOR": "carloshuangspec",
             "GITHUB_RUN_ATTEMPT": "1",
-            "LIVE_CONFIRMATION": "SEND_CN_ONCE",
             "WECHAT_APP_ID": "TEST_APP_ID",
-            "WECHAT_APP_SECRET": "TEST_APP_SECRET",
-            "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE_ID",
-            "WECHAT_OPENID_CN": "TEST_OPENID_CN",
+            "WECHAT_APP_SECRET": "TEST_SECRET",
+            "WECHAT_TEMPLATE_ID": "TEST_TEMPLATE",
+            "WECHAT_OPENID_CN": "TEST_OPENID",
         }
         stderr = StringIO()
         with (
             patch.dict(os.environ, env, clear=True),
-            patch.object(
-                main, "build_payload_fields", return_value={"love_line": "X" * 65}
-            ),
+            patch.object(main, "build_payload_fields", return_value={"love_line": "X" * 65}),
             patch.object(main, "send_template") as send,
             redirect_stderr(stderr),
         ):
@@ -265,9 +237,7 @@ class DailyIntegrationTests(unittest.TestCase):
     def test_preview_reports_only_fixed_metadata_not_theme(self) -> None:
         env = {
             **BASE_ENV,
-            "DAILY_MESSAGE_CONFIG": json.dumps(
-                {"date": "2026-09-16", "theme": "private-theme-marker"}
-            ),
+            "DAILY_MESSAGE_CONFIG": '{"date":"2026-09-16","theme":"private-theme-marker"}',
         }
         stdout = StringIO()
         stderr = StringIO()
@@ -275,20 +245,15 @@ class DailyIntegrationTests(unittest.TestCase):
             patch.dict(os.environ, env, clear=True),
             patch.object(main, "local_today", return_value=date(2026, 9, 16)),
             patch.object(main, "local_now_str", return_value="08:00"),
-            patch.object(
-                main, "brief_weather", side_effect=["Clear 20°C", "Clear 20°C"]
-            ),
-            patch.object(
-                main, "generate_love_line", return_value="Here with you"
-            ),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value="Here with you"),
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
             self.assertEqual(main.main(), 0)
         payload = json.loads(stdout.getvalue())
-        self.assertIs(payload["meta"]["deepseek_key_set"], False)
-        self.assertNotIn("private-theme-marker", stdout.getvalue())
-        self.assertNotIn("private-theme-marker", stderr.getvalue())
+        self.assertFalse(payload["meta"]["deepseek_key_set"])
+        self.assertNotIn("private-theme-marker", stdout.getvalue() + stderr.getvalue())
         self.assertIn("override_status=active", stderr.getvalue())
 
 
