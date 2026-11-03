@@ -15,8 +15,9 @@ from daily_content import (
     parse_config,
 )
 from dates import local_now_str, local_today, love_days, meet_status
-from deepseek_line import generate_love_line
+from deepseek_line import GENERATED_LINE_MAX, GENERATED_MAX_LINES, generate_love_line
 from send_hold import hold_applies, preview_hold, wait_for_send_time
+from special_days import get_special_fact
 from weather import brief_weather, weather_source
 from wechat import build_template_data, send_template
 
@@ -199,37 +200,74 @@ def build_payload_fields() -> dict[str, str]:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
     else:
+        # 特殊日事实只在生成路径计算：在 theme/exact 选择之后、
+        # 调用生成器之前传入；手动 exact 路径保持原样不动。
+        special_fact = get_special_fact(
+            today,
+            date.fromisoformat(love_start),
+            date.fromisoformat(next_meet) if next_meet else None,
+            date.fromisoformat(known_start),
+        )
         short_line = generate_love_line(
             theme=theme,
             time_a=time_a,
             time_b=time_b,
             weather_a=weather_a,
             weather_b=weather_b,
+            special_fact=special_fact,
         )
-    if (
-        not isinstance(short_line, str)
-        or not 1 <= len(short_line) <= ENGLISH_LINE_MAX
-        or not short_line.isascii()
-        or not short_line.isprintable()
-        or contains_forbidden_note_label(short_line)
-    ):
-        raise ConfigError("Invalid English love line")
+    if exact is not None:
+        if (
+            not isinstance(short_line, str)
+            or not 1 <= len(short_line) <= ENGLISH_LINE_MAX
+            or not short_line.isascii()
+            or not short_line.isprintable()
+            or contains_forbidden_note_label(short_line)
+        ):
+            raise ConfigError("Invalid English love line")
+    else:
+        # 生成内容放宽：总上限 200 字符、允许换行（最多 4 行），
+        # 仍须 ASCII、无省略号、内容完整；其他校验保持不变。
+        if (
+            not isinstance(short_line, str)
+            or not 1 <= len(short_line) <= GENERATED_LINE_MAX
+            or not short_line.isascii()
+            or len(short_line.split("\n")) > GENERATED_MAX_LINES
+            or any(not ch.isprintable() and ch != "\n" for ch in short_line)
+            or contains_forbidden_note_label(short_line)
+            or "..." in short_line
+            or "…" in short_line
+        ):
+            raise ConfigError("Invalid English love line")
     # Mirror the complete line beside the countdown, never an unfinished excerpt.
     # This is the field the test-account phone card has actually shown.
     love_line = short_line
-    if len(love_line) > LOVE_LINE_MAX:
+    if exact is not None and len(love_line) > LOVE_LINE_MAX:
+        raise ConfigError("Love line exceeds template limit")
+    if exact is None and len(love_line) > GENERATED_LINE_MAX:
         raise ConfigError("Love line exceeds template limit")
     countdown = meet_status(next_meet, today=today)
-    available = LOVE_LINE_MAX - len(countdown) - len(" | ")
-    if available < 1:
-        raise ConfigError("Meeting field has no room for the love line")
     # Preserve a manual exact verbatim in love_line; only trim incidental edge
     # spaces on the mirrored version, then reject rather than abbreviate.
     visible_line = short_line.strip()
     if not visible_line:
         raise ConfigError("Love line has no visible text")
-    if len(visible_line) > available:
-        raise ConfigError("Love line exceeds visible meeting field")
+    mirrored = f"{countdown} | {visible_line}"
+    if exact is not None:
+        available = LOVE_LINE_MAX - len(countdown) - len(" | ")
+        if available < 1:
+            raise ConfigError("Meeting field has no room for the love line")
+        if len(visible_line) > available:
+            raise ConfigError("Love line exceeds visible meeting field")
+        meet_days = mirrored
+    elif len(mirrored) <= LOVE_LINE_MAX:
+        meet_days = mirrored
+    elif countdown:
+        # 全文放不进现有 meet_days 可用空间时只放倒计时本身，
+        # 绝不截断诗句；全文仍保留在 love_line 字段。
+        meet_days = countdown
+    else:
+        meet_days = ""
 
     greeting = f"Known: ≈{known_days} days"
     if len(greeting) > 20:
@@ -247,7 +285,7 @@ def build_payload_fields() -> dict[str, str]:
         "time_b": time_b,
         "weather_b": weather_b,
         "love_days": f"{ld} day" if ld == 1 else f"{ld} days",
-        "meet_days": f"{countdown} | {visible_line}",
+        "meet_days": meet_days,
         "love_line": love_line,
         "weather_source": weather_source(),
     }

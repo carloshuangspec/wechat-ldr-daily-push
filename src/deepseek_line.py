@@ -26,6 +26,13 @@ MAX_ATTEMPTS = 5
 # Ask for well under the hard cap so a slightly long reply still fits.
 TARGET_LINE_LEN = 40
 
+# Safety cap for generated content only (not a creative target): ordinary
+# single lines still aim for TARGET_LINE_LEN and at most ENGLISH_LINE_MAX
+# in the prompt, but validation accepts up to 200 characters / 4 lines so a
+# short special-day poem is not rejected for length alone.
+GENERATED_LINE_MAX = 200
+GENERATED_MAX_LINES = 4
+
 # Deterministic, meaning-preserving character mappings for generated text only.
 _CURLY_SINGLE = "\u2018\u2019\u201a\u201b"
 _CURLY_DOUBLE = "\u201c\u201d\u201e\u201f"
@@ -98,6 +105,7 @@ def build_love_line_prompt(
     daypart_b: str | None = None,
     weather_a: str | None = None,
     weather_b: str | None = None,
+    special_fact: str | None = None,
 ) -> str:
     """Build the dual-reader generation prompt; never include secrets or city names."""
     prompt = (
@@ -133,6 +141,33 @@ def build_love_line_prompt(
         "Output only the single line itself, ending with . or ! or ?, "
         "with no quotes, markdown, labels, emoji, explanations, or line breaks."
     )
+    if special_fact is not None:
+        if (
+            not isinstance(special_fact, str)
+            or not special_fact.strip()
+            or any(char in _LINE_BREAKS for char in special_fact)
+        ):
+            raise DeepSeekLineError()
+        prompt = prompt.replace(
+            "Exactly one line: no line breaks.",
+            "Either one longer sentence, or a short poem of 2-4 lines.",
+        )
+        prompt = prompt.replace(
+            f"Max {ENGLISH_LINE_MAX} printable ASCII characters, counting spaces and punctuation; "
+            f"aim for {TARGET_LINE_LEN} characters or fewer (about 6 to 9 words). Short beats clever.",
+            f"Max {GENERATED_LINE_MAX} printable ASCII characters in total, "
+            f"at most {GENERATED_MAX_LINES} lines. Short beats clever.",
+        )
+        prompt = prompt.replace(
+            f"Questions, if any, must be skippable and still at most {ENGLISH_LINE_MAX} printable ASCII characters.",
+            f"Questions, if any, must be skippable and still at most {GENERATED_LINE_MAX} printable ASCII characters.",
+        )
+        prompt = prompt.replace(
+            "Output only the single line itself, ending with . or ! or ?, "
+            "with no quotes, markdown, labels, emoji, explanations, or line breaks.",
+            "Output only the sentence or short poem itself, ending with . or ! or ?, "
+            "with no quotes, markdown, labels, emoji, or explanations.",
+        )
     facts: list[str] = []
     if daypart_a in _DAYPARTS:
         facts.append(f"side_a_daypart={daypart_a}")
@@ -146,6 +181,8 @@ def build_love_line_prompt(
         prompt += "\nAllowed facts: " + "; ".join(facts) + "."
     if theme is not None:
         prompt += f" Today's optional theme: {theme}"
+    if special_fact is not None:
+        prompt += f"\nToday is a special day: {special_fact}. This line must be written about this day."
     return prompt
 
 
@@ -242,13 +279,15 @@ def invalid_text_reason(line: str) -> str | None:
     """Return a fixed reason token for a rejected line, forbidden_label, or None if valid."""
     if not line:
         return "empty"
-    if any(char in _LINE_BREAKS for char in line):
+    if any(char in _LINE_BREAKS and char != "\n" for char in line):
+        return "multiline"
+    if line.count("\n") >= GENERATED_MAX_LINES:
         return "multiline"
     if not line.isascii():
         return "non_ascii"
-    if not line.isprintable():
+    if any(not char.isprintable() and char != "\n" for char in line):
         return "non_printable"
-    if len(line) > ENGLISH_LINE_MAX:
+    if len(line) > GENERATED_LINE_MAX:
         return "too_long"
     if line[0] in _WRAPPERS or line[-1] in _WRAPPERS:
         return "quoted"
@@ -270,6 +309,7 @@ def generate_love_line(
     time_b: str | None = None,
     weather_a: str | None = None,
     weather_b: str | None = None,
+    special_fact: str | None = None,
     timeout: float | tuple[float, float] = (5, 30),
 ) -> str:
     """Ask for a fresh dual-reader letter line; reject any failed or partial completion."""
@@ -293,6 +333,7 @@ def generate_love_line(
         daypart_b=daypart_from_hhmm(time_b) if time_b is not None else None,
         weather_a=sanitize_weather_fact(weather_a),
         weather_b=sanitize_weather_fact(weather_b),
+        special_fact=special_fact,
     )
 
     last_failure = "invalid_response"

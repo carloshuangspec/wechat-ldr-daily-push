@@ -42,7 +42,7 @@ class DailyIntegrationTests(unittest.TestCase):
         self.assertEqual(fields["love_line"], "I ache for you.")
         self.assertTrue(fields["greeting"].startswith("Known: ≈"))
 
-    def test_long_love_line_is_rejected_instead_of_visible_ellipsis(self) -> None:
+    def test_long_love_line_falls_back_to_countdown_in_meeting_field(self) -> None:
         line = "I love the ordinary hours we get to build together, one by one."
         with (
             patch.dict(os.environ, {**BASE_ENV, "PUSH_SLOT": "us"}, clear=True),
@@ -51,8 +51,15 @@ class DailyIntegrationTests(unittest.TestCase):
             patch.object(main, "brief_weather", return_value="Clear 20°C"),
             patch.object(main, "generate_love_line", return_value=line),
         ):
-            with self.assertRaises(main.ConfigError):
-                main.build_payload_fields()
+            fields = main.build_payload_fields()
+        self.assertEqual(fields["meet_days"], "in 95 days")
+        self.assertEqual(fields["love_line"], line)
+        self.assertEqual(
+            wechat.build_template_data(fields)["love_line"]["value"], line
+        )
+        self.assertEqual(
+            wechat.build_template_data(fields)["meet_days"]["value"], "in 95 days"
+        )
 
     def test_manual_exact_too_long_for_card_is_rejected(self) -> None:
         line = "I will keep choosing you through every ordinary day."
@@ -136,6 +143,7 @@ class DailyIntegrationTests(unittest.TestCase):
             time_b="08:00",
             weather_a="Clear 20°C",
             weather_b="Clear 20°C",
+            special_fact=None,
         )
         self.assertEqual(fields["love_line"], "Here with you")
         self.assertTrue(fields["greeting"].startswith("Known: ≈"))
@@ -157,6 +165,7 @@ class DailyIntegrationTests(unittest.TestCase):
             time_b="08:00",
             weather_a="Clear 20°C",
             weather_b="Clear 20°C",
+            special_fact=None,
         )
 
     def test_us_ignores_even_malformed_cn_config(self) -> None:
@@ -177,6 +186,7 @@ class DailyIntegrationTests(unittest.TestCase):
             time_b="08:00",
             weather_a="Clear 20°C",
             weather_b="Clear 20°C",
+            special_fact=None,
         )
 
     def test_bad_cn_config_fails_before_weather_or_provider(self) -> None:
@@ -193,7 +203,7 @@ class DailyIntegrationTests(unittest.TestCase):
 
     def test_template_rejects_long_love_line_without_ellipsis(self) -> None:
         with self.assertRaises(ValueError):
-            wechat.build_template_data({"love_line": "X" * 65})
+            wechat.build_template_data({"love_line": "X" * 201})
 
     def test_render_failure_cannot_send_or_leak_line(self) -> None:
         env = {
