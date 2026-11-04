@@ -176,6 +176,7 @@ class PairedDeliveryTests(unittest.TestCase):
             time_b="09:00",
             weather_a="Cloudy 20°C",
             weather_b="Fair 25°C",
+            special_fact=None,
         )
         self.assertEqual(send.call_count, 2)
         first, second = [call.kwargs for call in send.call_args_list]
