@@ -82,6 +82,9 @@ def _tier1_facts(
         facts.append(
             f"today marks {months} month{'s' if months != 1 else ''} together"
         )
+    # One-off: 2026-11-08 is a Borges-style love confession day.
+    if today == date(2026, 11, 8):
+        facts.append("the poem should be a Borges-style love confession")
     if today.month == 7 and today.day == 8 and today > together_start:
         years = today.year - together_start.year
         if years >= 1:
@@ -118,6 +121,17 @@ def _tier2_facts(today: date, together_days: int) -> list[str]:
     return facts
 
 
+def _tier3_facts(today: date, together_days: int, known_days: int) -> list[str]:
+    facts = _numeric_facts(together_days, "together")
+    if today.month == 1 and today.day == 1:
+        facts.append("today is New Year's Day")
+    if today.month == 2 and today.day == 14:
+        facts.append("today is Valentine's Day")
+    if today.month == 8 and today.day == 17:
+        facts.append("today is Shuqi's birthday")
+    return facts + _numeric_facts(known_days, "known")
+
+
 def get_special_day(
     today: date,
     together_start: date,
@@ -133,20 +147,7 @@ def get_special_day(
     tier2 = _tier2_facts(today, together_days)
     if tier2:
         return 2, "; ".join(tier2)
-    tier3 = _numeric_facts(together_days, "together") + _numeric_facts(
-        known_days, "known"
-    )
+    tier3 = _tier3_facts(today, together_days, known_days)
     if tier3:
         return 3, "; ".join(tier3)
     return None
-
-
-def get_special_fact(
-    today: date,
-    together_start: date,
-    next_meet: date | None = None,
-    known_start: date = KNOWN_START_DATE,
-) -> str | None:
-    """Return just the fact sentence for a special day, or None."""
-    result = get_special_day(today, together_start, next_meet, known_start)
-    return result[1] if result is not None else None
