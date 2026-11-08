@@ -19,7 +19,7 @@ from deepseek_line import GENERATED_LINE_MAX, GENERATED_MAX_LINES, generate_love
 from send_hold import hold_applies, preview_hold, wait_for_send_time
 from special_days import get_special_fact
 from weather import brief_weather, weather_source
-from wechat import build_template_data, send_template
+from wechat import MEET_DAYS_MAX, build_template_data, send_template
 
 
 def _env(name: str, default: str = "") -> str:
@@ -196,6 +196,8 @@ def build_payload_fields() -> dict[str, str]:
     # Compute local clocks before generation so DeepSeek can use dayparts.
     time_a = local_now_str(tz_a)
     time_b = local_now_str(tz_b)
+    # special_fact 只在生成路径有值；exact 手写路径为 None。
+    special_fact = None
     if exact is not None:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
@@ -252,7 +254,18 @@ def build_payload_fields() -> dict[str, str]:
     visible_line = short_line.strip()
     if not visible_line:
         raise ConfigError("Love line has no visible text")
-    mirrored = f"{countdown} | {visible_line}"
+    # 特殊日（生成路径且 special_fact 非空）：把换行折叠为 " / " 后，将完整小诗
+    # 镜像进 meet_days——这是目前唯一被证实在手机卡片上可见的诗句位置。
+    # 预算放宽到 MEET_DAYS_MAX（220，见 wechat.py）：200 字符生成上限 + 换行折叠
+    # 最多 +6 + 倒计时与 " | " 最多 14；love_line 仍写入原文，不截断。
+    # 普通日与手写 exact 路径的原有 64 字符预算完全不变。
+    if exact is None and special_fact:
+        mirror_text = " / ".join(visible_line.split("\n"))
+        mirror_limit = MEET_DAYS_MAX
+    else:
+        mirror_text = visible_line
+        mirror_limit = LOVE_LINE_MAX
+    mirrored = f"{countdown} | {mirror_text}"
     if exact is not None:
         available = LOVE_LINE_MAX - len(countdown) - len(" | ")
         if available < 1:
@@ -260,7 +273,7 @@ def build_payload_fields() -> dict[str, str]:
         if len(visible_line) > available:
             raise ConfigError("Love line exceeds visible meeting field")
         meet_days = mirrored
-    elif len(mirrored) <= LOVE_LINE_MAX:
+    elif len(mirrored) <= mirror_limit:
         meet_days = mirrored
     elif countdown:
         # 全文放不进现有 meet_days 可用空间时只放倒计时本身，
@@ -268,6 +281,14 @@ def build_payload_fields() -> dict[str, str]:
         meet_days = countdown
     else:
         meet_days = ""
+    # 可观测性：只打元数据（字符数、行数、是否特殊日、meet_days 是否为全文镜像），绝不打印正文。
+    line_count = len(short_line.split("\n"))
+    print(
+        f"line_meta chars={len(short_line)} lines={line_count} "
+        f"special_day={exact is None and bool(special_fact)} "
+        f"meet_days_mirrored={meet_days == mirrored}",
+        file=sys.stderr,
+    )
 
     greeting = f"Known: ≈{known_days} days"
     if len(greeting) > 20:
