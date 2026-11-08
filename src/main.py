@@ -1,8 +1,6 @@
 """异地恋每日推送入口：组装数据并发送微信测试号模板消息。"""
 
-
 from __future__ import annotations
-
 
 import json
 import os
