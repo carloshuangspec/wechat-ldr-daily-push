@@ -102,9 +102,9 @@ class SpecialDayTest(unittest.TestCase):
         self.assertIn("repetition and echoes", fact)
 
     def test_repeated_digit_day_echo_theme(self):
-        tier, fact = special(date(2025, 10, 1))
+        tier, fact = special(date(2028, 10, 16))
         self.assertEqual(tier, 3)
-        self.assertIn("2222", fact)
+        self.assertIn("3333", fact)
         self.assertIn("repeated-digit", fact)
         self.assertIn("repetition and echoes", fact)
 
