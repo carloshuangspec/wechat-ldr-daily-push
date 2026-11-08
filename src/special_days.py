@@ -60,9 +60,15 @@ def _numeric_facts(days: int, label: str) -> list[str]:
     if _is_increasing_digits(days):
         facts.append(f"today is day {days} {label}, a rising number")
     if _is_repeated_digits(days):
-        facts.append(f"today is day {days} {label}, a repeated-digit number")
+        facts.append(
+            f"today is day {days} {label}, a repeated-digit number, "
+            "with a theme of repetition and echoes"
+        )
     if _is_abab(days):
-        facts.append(f"today is day {days} {label}, an ABAB number")
+        facts.append(
+            f"today is day {days} {label}, an ABAB number, "
+            "with a theme of repetition and echoes"
+        )
     return facts
 
 
