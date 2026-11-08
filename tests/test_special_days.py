@@ -94,6 +94,41 @@ class SpecialDayTest(unittest.TestCase):
         self.assertIn("2626", fact)
         self.assertIn("ABAB", fact)
 
+    def test_pattern_day_2626_echo_theme(self):
+        tier, fact = special(date(2026, 11, 9))
+        self.assertEqual(tier, 3)
+        self.assertIn("2626", fact)
+        self.assertIn("ABAB", fact)
+        self.assertIn("repetition and echoes", fact)
+
+    def test_repeated_digit_day_echo_theme(self):
+        tier, fact = special(date(2025, 10, 1))
+        self.assertEqual(tier, 3)
+        self.assertIn("2222", fact)
+        self.assertIn("repeated-digit", fact)
+        self.assertIn("repetition and echoes", fact)
+
+    def test_round_and_rising_numbers_have_no_echo_theme(self):
+        tier, fact = special(date(2026, 11, 4))
+        self.assertEqual(tier, 3)
+        self.assertIn("120", fact)
+        self.assertNotIn("repetition and echoes", fact)
+        tier, fact = special(date(2026, 11, 7))
+        self.assertEqual(tier, 3)
+        self.assertIn("123", fact)
+        self.assertNotIn("repetition and echoes", fact)
+
+    def test_other_tier_special_days_have_no_echo_theme(self):
+        tier, fact = special(date(2026, 8, 8))
+        self.assertEqual(tier, 1)
+        self.assertNotIn("repetition and echoes", fact)
+        tier, fact = special(date(2026, 10, 15))
+        self.assertEqual(tier, 2)
+        self.assertNotIn("repetition and echoes", fact)
+        tier, fact = special(date(2026, 11, 8))
+        self.assertEqual(tier, 1)
+        self.assertNotIn("repetition and echoes", fact)
+
     def test_birthday_beats_tier2(self):
         tier, fact = special(date(2026, 8, 26))
         self.assertEqual(tier, 1)
@@ -143,6 +178,20 @@ class RelaxedGeneratedValidationTest(unittest.TestCase):
             special_fact=fact,
         )
         self.assertIn("Borges-style love confession", prompt)
+        self.assertIn("Max 200", prompt)
+        self.assertIn("2-4 lines", prompt)
+
+    def test_pattern_day_prompt_carries_echo_theme(self):
+        _tier, fact = special(date(2026, 11, 9))
+        prompt = build_love_line_prompt(
+            daypart_a="morning",
+            daypart_b="evening",
+            weather_a="sunny",
+            weather_b="clear",
+            special_fact=fact,
+        )
+        self.assertIn("repetition and echoes", prompt)
+        self.assertIn("2626", prompt)
         self.assertIn("Max 200", prompt)
         self.assertIn("2-4 lines", prompt)
 
