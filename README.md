@@ -114,7 +114,7 @@ QWeather 的 `/v7/weather/now` 计划于 **2027-06-01** 停止服务；阶段 C 
 
 ## 微信模板
 
-测试号模板字段必须与下面一致，固定标签请用英文。无 Hello / Good morning 等问候语；`greeting` 字段本身是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 是见面倒计时加 ` | ` 和同一条完整情话，总长 ≤64；`love_line` 保留无标题英文原句（不加 `Note:` 或 Known），长度 ≤48。手机是否显示 `greeting` / `love_line` 取决于在线测试号模板；`weather_source` 在卡片上也可能不显示，须核对手机实际呈现：
+测试号模板字段必须与下面一致，固定标签请用英文。无 Hello / Good morning 等问候语；`greeting` 字段本身是 Known 行（如 `Known: ≈N days`，大 N 时缩短为 `Known ≈Nd`，且 ≤20）；`meet_days` 是见面倒计时加 ` | ` 和同一条完整情话，普通日总长 ≤64，特殊日全文镜像时总长 ≤220；`love_line` 保留无标题英文原句（不加 `Note:` 或 Known），长度 ≤48。手机是否显示 `greeting` / `love_line` 取决于在线测试号模板；`weather_source` 在卡片上也可能不显示，须核对手机实际呈现：
 
 ```text
 {{greeting.DATA}}

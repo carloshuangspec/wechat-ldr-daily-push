@@ -13,6 +13,13 @@ SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/template/send"
 TEMPLATE_LIST_URL = "https://api.weixin.qq.com/cgi-bin/template/get_all_private_template"
 
 
+# meet_days 上限：特殊日全文镜像预算（220）。
+# 200（生成上限 GENERATED_LINE_MAX）+ 6（最多 3 处换行由 "\n" 折叠为 " / " 各增 2 字符）
+# + 14（倒计时最长 "in 999 days" 11 字符 + " | " 3 字符）= 220。
+# 普通日与手写 exact 路径仍用 main.py 中的 64 字符预算；本上限只放行特殊日全文镜像。
+MEET_DAYS_MAX = 220
+
+
 class WeChatAPIError(RuntimeError):
     """不携带请求参数、响应正文或凭据的微信 API 异常。"""
 
@@ -83,8 +90,8 @@ def build_template_data(fields: dict[str, Any]) -> dict[str, dict[str, str]]:
         "time_b": 10,
         "weather_b": 16,
         "love_days": 12,
-        "meet_days": 64,
-        # 生成内容的安全上限放宽到 200；meet_days 仍为 64。
+        "meet_days": MEET_DAYS_MAX,
+        # 生成内容的安全上限放宽到 200；meet_days 上限为 MEET_DAYS_MAX（220）。
         "love_line": 200,
         "weather_source": 120,
     }

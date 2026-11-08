@@ -61,6 +61,53 @@ class DailyIntegrationTests(unittest.TestCase):
             wechat.build_template_data(fields)["meet_days"]["value"], "in 95 days"
         )
 
+    def test_special_day_multiline_poem_mirrored_in_meeting_field(self) -> None:
+        # 2026-11-08 为特殊日（special_fact 非空）；多行小诗应全文镜像进 meet_days。
+        poem = "First line of the poem.\nSecond line follows here.\nThird line ends it."
+        folded = "First line of the poem. / Second line follows here. / Third line ends it."
+        with (
+            patch.dict(os.environ, {**BASE_ENV, "PUSH_SLOT": "us"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 11, 8)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value=poem) as generate,
+            redirect_stderr(StringIO()),
+        ):
+            fields = main.build_payload_fields()
+        self.assertTrue(generate.call_args.kwargs["special_fact"])
+        self.assertEqual(fields["meet_days"], f"in 42 days | {folded}")
+        self.assertEqual(fields["love_line"], poem)
+        self.assertLessEqual(len(fields["meet_days"]), wechat.MEET_DAYS_MAX)
+        self.assertEqual(
+            wechat.build_template_data(fields)["meet_days"]["value"],
+            f"in 42 days | {folded}",
+        )
+
+    def test_special_day_max_length_poem_does_not_raise(self) -> None:
+        # 200 字符小诗（4 行）+ 倒计时不抛错；长度 219 ≤ 新上限 220。
+        poem = "\n".join(["A" * 50, "B" * 50, "C" * 50, "D" * 47])
+        self.assertEqual(len(poem), 200)
+        with (
+            patch.dict(os.environ, {**BASE_ENV, "PUSH_SLOT": "us"}, clear=True),
+            patch.object(main, "local_today", return_value=date(2026, 11, 8)),
+            patch.object(main, "local_now_str", return_value="08:00"),
+            patch.object(main, "brief_weather", return_value="Clear 20°C"),
+            patch.object(main, "generate_love_line", return_value=poem),
+            redirect_stderr(StringIO()),
+        ):
+            fields = main.build_payload_fields()
+        folded = " / ".join(poem.split("\n"))
+        self.assertEqual(fields["meet_days"], f"in 42 days | {folded}")
+        self.assertEqual(len(fields["meet_days"]), len("in 42 days | ") + len(folded))
+        self.assertLessEqual(len(fields["meet_days"]), wechat.MEET_DAYS_MAX)
+        self.assertEqual(wechat.MEET_DAYS_MAX, 200 + 6 + 14)
+        self.assertEqual(fields["love_line"], poem)
+        self.assertEqual(
+            wechat.build_template_data(fields)["meet_days"]["value"],
+            
+            fields["meet_days"],
+        )
+
     def test_manual_exact_too_long_for_card_is_rejected(self) -> None:
         line = "I will keep choosing you through every ordinary day."
         env = {
@@ -98,8 +145,13 @@ class DailyIntegrationTests(unittest.TestCase):
         self.assertEqual(fields["meet_days"], "in 95 days | I choose you")
 
     def test_meeting_field_rejects_truncation_of_emotional_line(self) -> None:
+        # 新上限 220：221 字符仍拒绝，220 字符放行。
         with self.assertRaises(ValueError):
-            wechat.build_template_data({"meet_days": "in 95 days" + "X" * 65})
+            wechat.build_template_data({"meet_days": "X" * 221})
+        self.assertEqual(
+            wechat.build_template_data({"meet_days": "X" * 220})["meet_days"]["value"],
+            "X" * 220,
+        )
 
     def test_exact_cn_line_bypasses_provider_and_survives_rendering(self) -> None:
         env = {
