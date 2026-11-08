@@ -82,6 +82,9 @@ def _tier1_facts(
         facts.append(
             f"today marks {months} month{'s' if months != 1 else ''} together"
         )
+    # One-off: 2026-11-08 is a Borges-style love confession day.
+    if today == date(2026, 11, 8):
+        facts.append("the poem should be a Borges-style love confession")
     if today.month == 7 and today.day == 8 and today > together_start:
         years = today.year - together_start.year
         if years >= 1:

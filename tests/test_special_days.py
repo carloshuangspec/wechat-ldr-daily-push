@@ -55,6 +55,23 @@ class SpecialDayTest(unittest.TestCase):
         self.assertEqual(tier, 1)
         self.assertIn("1 month", fact)
 
+    def test_confession_theme_on_2026_11_08(self):
+        tier, fact = special(date(2026, 11, 8))
+        self.assertEqual(tier, 1)
+        self.assertIn("4 months together", fact)
+        self.assertIn("Borges-style love confession", fact)
+
+    def test_no_confession_theme_on_adjacent_dates(self):
+        tier, fact = special(date(2026, 11, 7))
+        self.assertEqual(tier, 3)
+        self.assertNotIn("Borges-style love confession", fact)
+        tier, fact = special(date(2026, 11, 9))
+        self.assertEqual(tier, 3)
+        self.assertNotIn("Borges-style love confession", fact)
+        tier, fact = special(date(2026, 10, 8))
+        self.assertEqual(tier, 1)
+        self.assertEqual(fact, "today marks 3 months together")
+
     def test_meeting_day_and_day_before(self):
         tier, fact = special(date(2026, 12, 20), date(2026, 12, 20))
         self.assertEqual(tier, 1)
@@ -115,6 +132,19 @@ class RelaxedGeneratedValidationTest(unittest.TestCase):
         self.assertIn("Max 200", prompt)
         self.assertIn("2-4 lines", prompt)
         self.assertNotIn("Exactly one line", prompt)
+
+    def test_confession_prompt_keeps_relaxed_limits(self):
+        _tier, fact = special(date(2026, 11, 8))
+        prompt = build_love_line_prompt(
+            daypart_a="morning",
+            daypart_b="evening",
+            weather_a="sunny",
+            weather_b="clear",
+            special_fact=fact,
+        )
+        self.assertIn("Borges-style love confession", prompt)
+        self.assertIn("Max 200", prompt)
+        self.assertIn("2-4 lines", prompt)
 
     def test_special_poem_is_generated(self):
         poem = "The moon opens a door.\nThe mirror answers.\nTime walks on."
