@@ -84,7 +84,7 @@ class DailyIntegrationTests(unittest.TestCase):
         )
 
     def test_special_day_max_length_poem_does_not_raise(self) -> None:
-        # 最坏情况：200 字符小诗（4 行）+ 倒计时正好等于新上限 220，不抛错。
+        # 200 字符小诗（4 行）+ 倒计时不抛错；长度 219 ≤ 新上限 220。
         poem = "\n".join(["A" * 50, "B" * 50, "C" * 50, "D" * 47])
         self.assertEqual(len(poem), 200)
         with (
@@ -98,10 +98,13 @@ class DailyIntegrationTests(unittest.TestCase):
             fields = main.build_payload_fields()
         folded = " / ".join(poem.split("\n"))
         self.assertEqual(fields["meet_days"], f"in 42 days | {folded}")
-        self.assertEqual(len(fields["meet_days"]), wechat.MEET_DAYS_MAX)
+        self.assertEqual(len(fields["meet_days"]), len("in 42 days | ") + len(folded))
+        self.assertLessEqual(len(fields["meet_days"]), wechat.MEET_DAYS_MAX)
+        self.assertEqual(wechat.MEET_DAYS_MAX, 200 + 6 + 14)
         self.assertEqual(fields["love_line"], poem)
         self.assertEqual(
             wechat.build_template_data(fields)["meet_days"]["value"],
+            
             fields["meet_days"],
         )
 
