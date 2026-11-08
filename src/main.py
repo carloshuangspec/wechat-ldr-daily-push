@@ -1,6 +1,8 @@
 """异地恋每日推送入口：组装数据并发送微信测试号模板消息。"""
 
+
 from __future__ import annotations
+
 
 import json
 import os
@@ -155,6 +157,25 @@ def validate_live_configuration() -> list[tuple[str, str]]:
     return [(os.environ["LIVE_RECIPIENT"], resolve_openid())]
 
 
+def _card_first_line(line: str, available: int) -> str:
+    """Take the first line of a generated poem, fitted to `available` chars.
+
+    The test-account card does not render the independent love_line field,
+    so meet_days is the only card-visible carrier for a long poem. Keep the
+    first line whole when it fits; otherwise cut at the last word boundary
+    inside the budget, never mid-word. Returns "" when nothing fits.
+    """
+    first = line.split("\n", 1)[0].strip()
+    if available < 1 or not first:
+        return ""
+    if len(first) <= available:
+        return first
+    cut = first[:available]
+    if first[available] != " " and " " in cut:
+        cut = cut[: cut.rfind(" ")].rstrip()
+    return cut or first[:available]
+
+
 def build_payload_fields() -> dict[str, str]:
     city_a = _env("CITY_A", "Ann Arbor")
     city_b = _env("CITY_B", "Shanghai")
@@ -239,8 +260,11 @@ def build_payload_fields() -> dict[str, str]:
             or "…" in short_line
         ):
             raise ConfigError("Invalid English love line")
-    # Mirror the complete line beside the countdown, never an unfinished excerpt.
-    # This is the field the test-account phone card has actually shown.
+    # Mirror the complete line beside the countdown when it fits. A generated
+    # poem too long for the 64-char meeting field shows its first line on the
+    # card instead of nothing at all; the full poem always stays intact in
+    # love_line. This is the field the test-account phone card has actually
+    # shown; the independent love_line field is not rendered on the card.
     love_line = short_line
     if exact is not None and len(love_line) > LOVE_LINE_MAX:
         raise ConfigError("Love line exceeds template limit")
@@ -263,9 +287,13 @@ def build_payload_fields() -> dict[str, str]:
     elif len(mirrored) <= LOVE_LINE_MAX:
         meet_days = mirrored
     elif countdown:
-        # 全文放不进现有 meet_days 可用空间时只放倒计时本身，
-        # 绝不截断诗句；全文仍保留在 love_line 字段。
-        meet_days = countdown
+        # 全文放不进现有 meet_days 可用空间时，卡片上改放诗的首行
+        # （64 字预算内、按词边界截断）；全文仍保留在 love_line 字段。
+        # 若此处只留倒计时，特殊日的长诗在卡片上将完全不可见。
+        first_line = _card_first_line(
+            short_line, LOVE_LINE_MAX - len(countdown) - len(" | ")
+        )
+        meet_days = f"{countdown} | {first_line}" if first_line else countdown
     else:
         meet_days = ""
 
