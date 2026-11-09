@@ -17,7 +17,7 @@ from daily_content import (
 from dates import local_now_str, local_today, love_days, meet_status
 from deepseek_line import GENERATED_LINE_MAX, GENERATED_MAX_LINES, generate_love_line
 from send_hold import hold_applies, preview_hold, wait_for_send_time
-from special_days import get_special_fact
+from special_days import get_quoted_line, get_special_fact, is_valid_quoted_line
 from weather import brief_weather, weather_source
 from wechat import MEET_DAYS_MAX, build_template_data, send_template
 
@@ -198,9 +198,14 @@ def build_payload_fields() -> dict[str, str]:
     time_b = local_now_str(tz_b)
     # special_fact 只在生成路径有值；exact 手写路径为 None。
     special_fact = None
+    # Quoted schedule: a listed date wins over generation.
+    quoted = get_quoted_line(today)
     if exact is not None:
         short_line = exact
         print("line_source=manual", file=sys.stderr)
+    elif quoted is not None:
+        short_line = quoted
+        print("line_source=quoted", file=sys.stderr)
     else:
         # 特殊日事实只在生成路径计算：在 theme/exact 选择之后、
         # 调用生成器之前传入；手动 exact 路径保持原样不动。
@@ -227,6 +232,9 @@ def build_payload_fields() -> dict[str, str]:
             or contains_forbidden_note_label(short_line)
         ):
             raise ConfigError("Invalid English love line")
+    elif quoted is not None:
+            if not is_valid_quoted_line(short_line):
+                raise ConfigError("Invalid English love line")
     else:
         # 生成内容放宽：总上限 200 字符、允许换行（最多 4 行），
         # 仍须 ASCII、无省略号、内容完整；其他校验保持不变。
@@ -259,7 +267,8 @@ def build_payload_fields() -> dict[str, str]:
     # 预算放宽到 MEET_DAYS_MAX（220，见 wechat.py）：200 字符生成上限 + 换行折叠
     # 最多 +6 + 倒计时与 " | " 最多 14；love_line 仍写入原文，不截断。
     # 普通日与手写 exact 路径的原有 64 字符预算完全不变。
-    if exact is None and special_fact:
+    # Quoted lines get the same full-text mirror treatment; single line, no folding.
+    if quoted is not None or exact is None and special_fact:
         mirror_text = " / ".join(visible_line.split("\n"))
         mirror_limit = MEET_DAYS_MAX
     else:
