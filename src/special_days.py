@@ -62,12 +62,12 @@ def _numeric_facts(days: int, label: str) -> list[str]:
     if _is_repeated_digits(days):
         facts.append(
             f"today is day {days} {label}, a repeated-digit number, "
-            "with a theme of repetition and echoes"
+            '"with a theme of repetition and echoes"'
         )
     if _is_abab(days):
         facts.append(
             f"today is day {days} {label}, an ABAB number, "
-            "with a theme of repetition and echoes"
+            '"with a theme of repetition and echoes"'
         )
     return facts
 
@@ -159,3 +159,45 @@ def get_special_fact(
     """Return just the fact sentence for a special day, or None."""
     result = get_special_day(today, together_start, next_meet, known_start)
     return result[1] if result is not None else None
+
+
+# Scheduled verbatim lines: one English original per Shanghai delivery date
+# (2026-11-10 .. 2026-11-17). On a listed date the daily love line is the
+# table entry verbatim -- no DeepSeek call, no normalisation. A listed date
+# wins over a special_fact for that day. Dates outside the table are
+# unaffected and the table expires automatically after 2026-11-17.
+QUOTED_LINE_MAX = 200
+
+QUOTED_LINES: dict[date, str] = {
+    date(2026, 11, 10): "I can give you my loneliness, my darkness, the hunger of my heart.",
+    date(2026, 11, 11): "Out beyond ideas of wrongdoing and rightdoing there is a field. I'll meet you there.",
+    date(2026, 11, 12): "Love consists in this, that two solitudes protect and border and salute each other.",
+    date(2026, 11, 13): "Shall I compare thee to a summer's day? Thou art more lovely and more temperate.",
+    date(2026, 11, 14): "How do I love thee? Let me count the ways.",
+    date(2026, 11, 15): "Nothing in the world is single; all things by a law divine in one spirit meet and mingle. Why not I with thine?",
+    date(2026, 11, 16): "I have spread my dreams under your feet; tread softly because you tread on my dreams.",
+    date(2026, 11, 17): "That love is all there is, is all we know of love.",
+}
+
+
+def get_quoted_line(today: date) -> str | None:
+    """Return the scheduled verbatim line for today, or None."""
+    return QUOTED_LINES.get(today)
+
+
+def is_valid_quoted_line(line: str) -> bool:
+    """Quoted-line checks only: one line, printable ASCII, 1-200 chars.
+
+    Deliberately separate from the generated-line checks: a quoted line is
+    sent verbatim, so no end-punctuation, ellipsis or normalisation rules
+    from the generation path apply here.
+    """
+    if not isinstance(line, str):
+        return False
+    if not 1 <= len(line) <= QUOTED_LINE_MAX:
+        return False
+    if "\n" in line or "\r" in line:
+        return False
+    if not line.isascii():
+        return False
+    return all(ch.isprintable() for ch in line)
