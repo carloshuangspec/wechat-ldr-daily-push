@@ -62,12 +62,12 @@ def _numeric_facts(days: int, label: str) -> list[str]:
     if _is_repeated_digits(days):
         facts.append(
             f"today is day {days} {label}, a repeated-digit number, "
-            '"with a theme of repetition and echoes"'
+            "with a theme of repetition and echoes"
         )
     if _is_abab(days):
         facts.append(
             f"today is day {days} {label}, an ABAB number, "
-            '"with a theme of repetition and echoes"'
+            "with a theme of repetition and echoes"
         )
     return facts
 
